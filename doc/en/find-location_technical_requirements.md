@@ -2,7 +2,7 @@
 
 Verifiable statements the implementation is built to and reviewed against. Behaviour is set out in [the feature specification](find-location_feature_spec.md), product requirements in [the product requirements](find-location_product_requirements.md), implementation in [the technical approach](find-location_technical_approach.md), qualities in [the non-functional requirements](find-location_nfr.md), systems in [the system architecture](find-location_system_architecture.md), and build order and verification in [the dependency map](find-location_dependency_map.md).
 
-Each requirement carries an identifier and the submission that delivers it: **E1** automatic discovery, **E2** manual, batch and assignment, **E3** discovery roots.
+Each requirement carries an identifier and the submission that delivers it: **E1** automatic discovery, **E2** Start-triggered discovery, manual, batch and assignment, **E3** discovery roots.
 
 ## Terms
 
@@ -11,6 +11,9 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **Destination** — where a miss places the torrent and where incomplete files are written. CR-7 fixes its derivation, and PS-7 and PS-11 turn on it.
 * **Discovery root** — a search root the user configured, held with its own options.
 * **Pointed root** — a search root the user chose for a single operation, held for no longer than that operation.
+* **Manual mode** — a torrent mode in which automatic torrent management does not own the torrent's placement.
+* **Pending Start** — a normal or forced Start request intercepted before ordinary Start behaviour and held until its Start transaction permits or cancels it.
+* **Start transaction** — the single feature-owned operation for one torrent from Start interception through match, miss, cancellation or failure.
 
 ## Candidate root construction
 
@@ -62,17 +65,28 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 ## Assignment
 
 * **AS-1** (E2) Assignment shall disable automatic management before setting the save path.
-* **AS-2** (E2) Assignment shall force a recheck while **Recheck automatically** is enabled.
+* **AS-2** (E2) An assignment not owned by a pending Start shall force a recheck while **Recheck automatically** is enabled.
 * **AS-3** (E2) Assignment shall not overwrite content at the assigned location with data from the torrent's previous save path.
-* **AS-4** (E2) The decision to start shall be taken when the check reports, not when the location is assigned.
-* **AS-5** (E2) A torrent whose check reports complete content shall start while **Seed automatically** is enabled.
-* **AS-6** (E2) A torrent whose check reports incomplete content shall start while **Leech automatically** is enabled.
-* **AS-7** (E2) Starting shall use `TorrentOperatingMode::AutoManaged`, leaving the session's queueing limits governing.
-* **AS-8** (E2) Torrents awaiting a start decision shall be tracked by info hash, so a check the user triggered by other means is unaffected.
+* **AS-4** (E2) For an assignment not owned by a pending Start, the decision to start shall be taken when the feature's check reports, not when the location is assigned.
+* **AS-5** (E2) A torrent whose automatic assignment check reports complete content shall start while **Seed automatically** is enabled.
+* **AS-6** (E2) A torrent whose automatic assignment check reports incomplete content shall start while **Leech automatically** is enabled.
+* **AS-7** (E2) An automatic post-assignment start shall use `TorrentOperatingMode::AutoManaged`, leaving the session's queueing limits governing.
+* **AS-8** (E2) Torrents awaiting an automatic post-assignment start decision shall be tracked by info hash and by the check the feature issued, so a check triggered by other means is unaffected.
+
+## Start transactions
+
+* **TX-1** (E2) While the feature gate and **Find location when starting stopped torrents** are enabled, a normal or forced Start request for a stopped manual-mode torrent shall create its Start transaction before ordinary Start behaviour changes the torrent's stopped state or initiates payload activity. A torrent in automatic torrent management, or a request made while either setting is disabled, shall follow ordinary Start behaviour without a transaction.
+* **TX-2** (E2) From interception until TX-4 permits Start, the torrent shall remain held against creation, allocation or writing of payload files, requests for content pieces, and every other transition into payload download. A torrent without metadata may exchange metadata alone; metadata receipt shall continue the same transaction and shall not release its payload hold.
+* **TX-3** (E2) For every match, phases shall occur in this order: discovery completes; a location outside the torrent's current save path and download path is assigned without overwriting it from the previous location; any required storage movement completes with the selected location reported as actual; the feature issues a recheck at the matched location; that exact recheck reports successful completion; the pending Start is released. A match at the current save path or download path skips assignment and movement but not recheck. The recheck is mandatory regardless of **Recheck automatically**, and no later phase shall begin before the preceding condition holds.
+* **TX-4** (E2) A successful search with no match shall release the ordinary Start workflow at the configured destination. Every match shall release only after TX-3. Complete checked content shall seed, and partial checked content shall download only pieces the recheck found missing.
+* **TX-5** (E2) A Start transaction shall preserve the user's requested normal or forced operating mode. Its eventual Start shall use that mode rather than the automatic post-assignment mode of AS-7.
+* **TX-6** (E2) Repeated Start requests for a torrent with an active Start transaction shall coalesce into that transaction and shall create no additional search, assignment or recheck. The transaction shall retain the operating mode of the latest explicit Start request.
+* **TX-7** (E2) A Stop request shall cancel an active Start transaction and leave the torrent stopped. Torrent removal and session shutdown shall cancel it without a later asynchronous result assigning, rechecking or starting the torrent.
+* **TX-8** (E2) A discovery-operation, assignment, storage-movement or recheck failure shall be distinct from a successful miss: it shall clear all feature-owned state for the transaction, shall not release the pending Start, and shall leave the torrent stopped and able to begin a later transaction. A cached or reported checking state shall not satisfy TX-3; only successful completion of the feature-issued recheck shall do so.
 
 ## Settings and persistence
 
-* **ST-1** (E1, E2) Each boolean setting shall be a getter and setter pair on `Preferences`, defaulting to enabled, writing only on a changed value.
+* **ST-1** (E1, E2) Each boolean setting shall be a getter and setter pair on `Session`, defaulting to enabled, writing only on a changed value.
 * **ST-2** (E1) The options group's state shall be a preference of its own, gating the feature ahead of the individual settings.
 * **ST-3** (E1) Disabling the group shall leave the settings within it holding their stored values.
 * **ST-4** (E1) With the group disabled, the candidate list shall hold the torrent's save path and download path alone.
@@ -80,6 +94,7 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **ST-6** (E3) The discovery root list shall be empty by default.
 * **ST-7** (E3) Discovery root storage shall be a singleton whose lifetime `Application` owns.
 * **ST-8** (E3) A pointed root shall not be written to the discovery root list. It applies to the operation that chose it and to no other, and leaves the user's configuration as they set it.
+* **ST-9** (E2) **Find location when starting stopped torrents** shall have a setting of its own, defaulting to enabled and gated by the feature group. It shall neither read nor write the value of **Find location automatically**, **Recheck automatically**, **Seed automatically** or **Leech automatically**.
 
 ## Interfaces
 
@@ -94,14 +109,16 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **IF-9** (E2) Torrents in a batch that matched nothing shall be presented as a list the user can walk or abandon.
 * **IF-10** (E3) The unmatched list shall accept a directory to search, and shall accept another while entries remain.
 * **IF-11** (E2) The GUI shall reach discovery through the `BitTorrent::Session` interface.
-* **IF-13** (E2) The session discovery virtual shall be a `void` operation reporting through a completion signal carrying one torrent's result, so a batch receives each outcome as that torrent completes rather than one result for the selection.
 * **IF-12** (E1, E2, E3) Every user-facing string shall be translatable through `tr()`.
+* **IF-13** (E2) The session discovery virtual shall be a `void` operation reporting through a completion signal carrying one torrent's result, so a batch receives each outcome as that torrent completes rather than one result for the selection.
+* **IF-14** (E2) The options dialog group and WebUI preferences shall each offer a checkbox labelled **Find location when starting stopped torrents**, backed by the ST-9 setting.
 
 ## Logging
 
 * **LG-1** (E1) A search shall record the torrent, the winning candidate, the origin it came from, and the count that chose it, through `Logger::addMessage`.
 * **LG-2** (E1) A search matching nothing shall record that outcome.
 * **LG-3** (E1) Log volume shall stay proportional to torrents processed rather than to candidates probed.
+* **LG-4** (E2) A Start transaction shall record one final outcome: continued after a match, continued after a miss, cancelled, or failed. A failure shall identify its phase and reported reason.
 
 ## Build and verification
 
@@ -112,6 +129,7 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **BT-5** (E1, E3) Candidate root construction, selection, and the enumerated name lookup shall be covered without a populated filesystem.
 * **BT-6** (E1, E3) Probing and enumeration shall be covered against fixtures under `test/testdata/`.
 * **BT-7** (E1, E2, E3) The suite shall pass under `-DTESTING=ON` on Ubuntu, macOS and Windows.
+* **BT-8** (E2) Verification shall independently exercise TX-1 through TX-8, including normal and forced Start, metadata-only acquisition, a match at an own path, a match requiring assignment, a miss, repeated Start, Stop cancellation, removal and shutdown during an asynchronous phase, and one failure at each fallible phase.
 
 The step-by-step verification plan is set out in [the dependency map](find-location_dependency_map.md).
 
@@ -144,13 +162,13 @@ flowchart TD
             T8["T8 options dialog group"]
             T9["T9 WebAPI and web controls"]
         end
-        subgraph e2["Epic 2 — manual, batch, assignment"]
-            T10["T10 assignment preferences"]
-            T11["T11 start decision"]
+        subgraph e2["Epic 2 — Start-triggered, manual, batch, assignment"]
+            T10["T10 transaction and assignment preferences"]
+            T11["T11 Start transaction and start decision"]
             T12["T12 session discovery virtual"]
             T13["T13 transfer list action"]
             T14["T14 unmatched list"]
-            T15["T15 assignment surfaces"]
+            T15["T15 transaction and assignment surfaces"]
         end
         subgraph e3["Epic 3 — discovery roots"]
             T16["T16 discovery root storage"]
@@ -175,6 +193,7 @@ flowchart TD
     T5 --> T12
     T10 --> T11
     T10 --> T15
+    T5 --> T11
     T11 --> T13
     T12 --> T13
     T13 --> T14
@@ -210,12 +229,12 @@ flowchart TD
 | T7 resolution at metadata | RL-2 | T5 |
 | T8 options dialog group | IF-1 | T4 |
 | T9 WebAPI and web controls | IF-4, IF-5, IF-6 | T4 |
-| T10 assignment preferences | ST-1 | — |
-| T11 start decision | AS-4, AS-5, AS-6, AS-7, AS-8, PS-10, CN-7 | T10 |
+| T10 transaction and assignment preferences | ST-1, ST-9 | — |
+| T11 Start transaction and start decision | TX-1, TX-2, TX-3, TX-4, TX-5, TX-6, TX-7, TX-8, AS-4, AS-5, AS-6, AS-7, AS-8, PS-10, LG-4, BT-8, CN-7 | T5, T10 |
 | T12 session discovery virtual | IF-11, IF-13 | T5 |
 | T13 transfer list action | AS-1, AS-2, AS-3, IF-7, IF-8, BT-2 | T11, T12 |
 | T14 unmatched list | IF-9, BT-2 | T13 |
-| T15 assignment surfaces | IF-2, IF-4, IF-5, IF-6 | T10 |
+| T15 transaction and assignment surfaces | IF-2, IF-4, IF-5, IF-6, IF-14 | T10 |
 | T16 discovery root storage | ST-5, ST-6, ST-7, BT-1 | — |
 | T17 enumeration | EN-1, EN-2, EN-3, EN-4, EN-5, EN-6, PS-12, BT-6 | T16 |
 | T18 candidateRoots extension | CR-8, BT-5 | T3, T16, T17 |

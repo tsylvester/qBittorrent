@@ -2,7 +2,7 @@
 
 The order the work is built in, from the components that depend on nothing to the surfaces that depend on everything. The behaviour is set out in [the feature specification](find-location_feature_spec.md), its implementation in [the technical approach](find-location_technical_approach.md).
 
-Steps 0, 3, 4, 10 and 16 carry no prerequisite, so work may begin at any of them and a selectable step exists at every point in the walk. Steps 5, 13, 18, 22 and 20 are where independent paths rejoin.
+Steps 0, 3, 4, 10 and 16 carry no prerequisite, so work may begin at any of them and a selectable step exists at every point in the walk. Steps 5, 11, 13, 18, 22 and 20 are where independent paths rejoin.
 
 ## First iteration
 
@@ -78,17 +78,18 @@ The first iteration is complete and submittable at step 9.
 
 ## Second iteration
 
-### 10. Assignment preferences
+### 10. Existing-session settings
 
-* **Location** `src/base/preferences.h` and `src/base/preferences.cpp`.
-* **Produces** **Recheck automatically**, **Seed automatically** and **Leech automatically**, each defaulting to enabled.
+* **Location** `src/base/bittorrent/session.h`, `sessionimpl.h` and `sessionimpl.cpp`.
+* **Produces** **Find location when starting stopped torrents**, **Recheck automatically**, **Seed automatically** and **Leech automatically** as cached BitTorrent session settings. The Start-trigger setting is independent of **Find location automatically**; the three assignment settings retain their existing automatic-assignment meanings.
 * **Consumes** nothing.
 
-### 11. Start decision
+### 11. Existing-session assignment and pending Start
 
-* **Location** `TorrentImpl::handleTorrentChecked`.
-* **Produces** the decision to start a torrent once its recheck reports, seeding where the content is complete and downloading where it is not, over a set of torrents awaiting a decision tracked by info hash. Starting is `Torrent::start()` in its default auto-managed mode, so the session's queueing limits govern how many run.
-* **Consumes** step 10.
+* **Location** primarily `src/base/bittorrent/sessionimpl.*`, with one conditional delegation in `TorrentImpl::start()` and the minimum private Stop-origin distinction required for cancellation.
+* **Produces** the existing-torrent assignment flow and its small feature-owned state: searching, optional metadata wait, assignment through the existing location operations, waiting for the existing move queue, feature-issued recheck, and either automatic assignment completion or release of a preserved normal/forced Start. Repeated Start requests coalesce, and a one-shot pass lets the existing Start body run without recursion.
+* **Consumes** steps 5 and 10.
+* **Notes** existing `SessionImpl` metadata, info-hash-change, movement, checked, removal and error callbacks advance or clear the feature entry. No new lifecycle notification layer, public Start/Stop signature, move queue, metadata path or `forceRecheck()` implementation is introduced. Disabled and ineligible Start requests execute the existing Start body unchanged. An I/O error clears pending Start and stops the torrent; the next explicit Start reaches the existing error-clearing preamble before a fresh search, while the general force-recheck defect remains separate follow-up work. Steps 6 and 7 are regression baselines for this iteration, not edit points; if their tests expose an add-time contract violation, that finding is replanned explicitly rather than folded into step 11.
 
 ### 12. Session discovery interface
 
@@ -100,7 +101,7 @@ The first iteration is complete and submittable at step 9.
 ### 13. Transfer list action
 
 * **Location** `src/gui/transferlistwidget.cpp`.
-* **Produces** the **Find location** context menu action over single and multiple selections, the assignment path of `setAutoTMMEnabled(false)`, `setSavePath()` and `forceRecheck()`, and the fallback to the **Set location** dialog on no match.
+* **Produces** the **Find location** context menu action over single and multiple selections, assignment through the step 11 session flow, and the fallback to the **Set location** dialog on no match.
 * **Consumes** steps 11 and 12.
 
 ### 14. Unmatched torrent list
@@ -109,10 +110,10 @@ The first iteration is complete and submittable at step 9.
 * **Produces** the widget class and `.ui` file listing torrents that matched nothing, with the walk through them.
 * **Consumes** step 13.
 
-### 15. Assignment settings surfaces
+### 15. Existing-session settings surfaces
 
 * **Location** `src/gui/optionsdialog.ui`, `src/gui/optionsdialog.cpp`, `src/webui/api/appcontroller.cpp`, `src/webui/webapplication.h`, `WebAPI_Changelog.md`, `src/webui/www/private/views/preferences.html`.
-* **Produces** the three assignment checkboxes inside the **Find location** group, their two-level enablement, and the three WebAPI keys with an `API_VERSION` bump, a changelog entry, and their web interface controls.
+* **Produces** the Start-trigger checkbox and the three assignment checkboxes inside the **Find location** group, their enablement, and four WebAPI keys with a changelog entry and their web interface controls. `API_VERSION` remains for the maintainers to set.
 * **Consumes** step 10.
 
 The second iteration is complete and submittable at step 15.
@@ -189,10 +190,10 @@ Verified against a prepared directory tree and described in the pull request:
 * **Step 7** the same holds for a magnet link once its metadata arrives.
 * **Step 8** unchecking the **Find location** group returns torrent add to its two-directory behaviour.
 * **Step 9** the two keys appear on `app/preferences`, setting them through `app/setPreferences` is reflected in the options dialog, their controls render on the web interface preferences page and drive the same preferences, and `app/webapiVersion` reports the bumped value.
-* **Step 11** a torrent whose recheck reports complete content starts seeding, and one reporting partial content resumes downloading. A batch larger than `maxActiveTorrents()` starts up to that limit and queues the rest.
+* **Step 11** with the Start-trigger setting disabled, a stopped torrent follows the existing Start path unchanged. With it enabled, a stopped manual-mode torrent is held before missing-files reload or payload resume; a miss releases the requested normal or forced Start, while an own-path or moved-path match releases it only after the feature-issued recheck completes. Repeat Start to verify coalescing; cancel with Stop; remove and shut down during asynchronous phases; deliver late and unrelated completions; and exercise metadata arrival, movement failure, search failure and recheck I/O error. Confirm that failure never releases Start, a later Start clears the stale error before a fresh transaction, and automatic-mode and checking torrents retain their existing behavior. Separately verify the existing automatic assignment decisions for complete and partial content and the session queueing limits.
 * **Step 13** a torrent already in the session is located, rechecked and returned to service, and a torrent matching nothing opens the **Set location** dialog.
 * **Step 14** a selection mixing matches and misses assigns the matches and lists the misses. Over a selection large enough to take visible time, outcomes appear as each torrent completes rather than arriving together at the end.
-* **Step 15** the three assignment keys behave as step 9's do, and the web interface controls honour the same dependency the options dialog enforces between the recheck setting and the two start settings.
+* **Step 15** the Start-trigger key and three assignment keys behave as step 9's do. Desktop and web controls preserve their values while the group is disabled, and the seed/leech controls honour the recheck dependency. The Start-trigger control remains independent of **Find location automatically**.
 * **Step 19** a discovery root configured with recursion resolves torrents whose content sits in its subdirectories.
 * **Step 21** the discovery root list is readable through `app/preferences` and writable through `app/setPreferences`, a root added through the web interface appears in the options dialog list with its options intact, and `app/webapiVersion` reports the bumped value.
 * **Step 22** a discovery root outranks a watched folder save path holding the same content, a pointed root outranks a discovery root holding the same content, and a torrent added with no watched folder configured at all resolves against a discovery root. A discovery root on storage that is absent leaves other roots resolving normally.

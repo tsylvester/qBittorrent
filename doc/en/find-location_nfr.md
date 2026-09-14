@@ -4,7 +4,7 @@ The behaviour is set out in [the feature specification](find-location_feature_sp
 
 ## Performance
 
-* Discovery performs no hashing. A probe issues existence tests, and the hash check that establishes completed pieces is the one the torrent undergoes on being added.
+* Discovery performs no hashing. A probe issues existence tests; completed pieces are established by the check a torrent undergoes on being added or by the recheck required after Start-triggered discovery matches existing content.
 * A probe abandons a candidate root once its count can no longer overtake the best root found so far.
 * Cost per torrent scales as candidate roots multiplied by declared files, measured in existence tests. A probed save path contributes the root form, the name form and the source form; an enumerated one contributes the root form and the source form, with a lookup in place of the name form.
 * Recheck throughput is governed by the session's `MaxActiveCheckingTorrents` limit, so a batch queues within the session.
@@ -15,21 +15,27 @@ The behaviour is set out in [the feature specification](find-location_feature_sp
 
 * Probing runs on the session I/O thread. No filesystem access occurs on the GUI thread.
 * Discovery resolves asynchronously within the add path, so the session continues to accept torrents while a probe runs.
+* Start-triggered discovery returns control to its caller after recording the pending Start and dispatching the search. Neither filesystem traversal nor waiting for metadata, assignment, storage movement or recheck completion blocks the GUI thread.
+* Completion and failure notifications advance a Start transaction asynchronously. The transfer list, context menus and Stop action remain responsive while a transaction is held.
 * A batch over a large selection leaves the transfer list interactive throughout, reporting each torrent's outcome as that torrent completes.
 
 ## Data safety
 
 * Discovery reads. It creates, moves, renames and deletes nothing.
 * Assignment does not overwrite content at the discovered location with data from the torrent's previous save path. Discovery exists to adopt content already on disk, and adopting it must never damage it.
+* From interception of a Start request until discovery has completed with a successful miss or the matched location has completed its required recheck successfully, the ordinary Start workflow performs no payload-file creation, allocation, truncation or write and requests no content piece from a peer.
+* Metadata acquisition is the only network activity a held torrent may require before that release point. Receiving metadata does not permit payload allocation, writing or piece requests.
+* A successful miss and successful completion of the feature-issued recheck are the only outcomes that release a held Start. Cancellation and failure leave it unexecuted.
+* A search, assignment, storage-movement or recheck failure leaves the torrent stopped, clears feature-owned transaction state and permits a later retry. A cached or displayed checking state does not establish that a recheck began or succeeded.
 * A torrent matching no root is placed at its configured destination.
 * A wrong match is recoverable without loss. The recheck reports what is actually present, and **Set location** retargets the torrent.
 
 ## Compatibility
 
-* With the group disabled, torrent add behaves as it does without the feature: the candidate list holds the save path and download path, and the search performs as its two-directory form does.
+* With the group disabled, torrent add and Start behave as they do without the feature: the add-time candidate list holds the save path and download path, and a stopped torrent's Start request is not intercepted.
 * Preferences, resume data and save paths written by earlier versions are read unchanged.
-* The group and its settings default to enabled, so an upgrade changes placement for torrents added afterwards. Disabling the group is one action and restores prior behaviour. The discovery root list is empty by default, so an upgrade adds no search locations of its own.
-* Torrents started after assignment are auto-managed, so `isQueueingSystemEnabled()` and `maxActiveTorrents()` govern them as they govern any other torrent. The feature does not start torrents in forced mode and does not bypass the queue.
+* The group and its settings default to enabled, so an upgrade changes placement for torrents added afterwards and intercepts Start for eligible stopped torrents. Disabling the group is one action and restores prior behaviour. The discovery root list is empty by default, so an upgrade adds no search locations of its own.
+* Torrents started automatically after an assignment made without a pending Start are auto-managed, so `isQueueingSystemEnabled()` and `maxActiveTorrents()` govern them as they govern any other torrent. A Start transaction preserves the user's normal or forced operating mode; the feature changes neither mode's established queueing semantics and introduces no additional bypass.
 
 ## Portability
 
@@ -49,6 +55,7 @@ The behaviour is set out in [the feature specification](find-location_feature_sp
 
 * A discovery that assigns a location records the torrent, the chosen root, the origin that root came from, and the count that chose it, through `Logger::addMessage`.
 * A discovery that matches nothing records that outcome, so a user reporting an unexpected placement has a trail.
+* A Start transaction records one final outcome—continued after a match, continued after a miss, cancelled, or failed—and a failure identifies its phase and reported reason.
 * Log volume stays proportional to torrents processed rather than to roots probed.
 
 ## Accessibility and localisation

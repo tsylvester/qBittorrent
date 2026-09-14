@@ -6,11 +6,14 @@ A `.torrent` file records what content is, not where a particular user keeps it.
 
 When a user moves torrent management from one client to another, that association does not travel with the `.torrent` files. The receiving client has no basis for placing a torrent anywhere except the default location, so it treats content that is present on disk as absent and downloads it again.
 
+The same risk remains after a torrent has entered the session. Starting a stopped torrent through the ordinary workflow can create its configured destination, allocate files there and request pieces before the application looks for content elsewhere. Opening that newly created destination can then resemble a successful location match even though discovery never ran.
+
 Repairing this by hand means noticing each redownload, stopping the torrent, setting its location, and forcing a recheck. Across a migration of hundreds of torrents the effort is prohibitive, and every torrent the user fails to notice consumes bandwidth and disk space duplicating content that is already stored.
 
 ## Goals
 
 * Place a newly added torrent at content that already exists on disk, rather than downloading that content again.
+* Locate content for an existing stopped torrent before a Start request can create, allocate or download payload files at the configured destination.
 * Resolve the location before the torrent requests pieces from peers.
 * Recover partially downloaded content, including content the previous client left incomplete.
 * Provide a manual trigger for torrents that are already in the session, singly and in bulk.
@@ -33,6 +36,9 @@ Repairing this by hand means noticing each redownload, stopping the torrent, set
 * **Discovery root** — a directory the user configures for searching, held with its own options.
 * **Pointed root** — a directory the user chooses for one operation.
 * **Probe** — a count of how many of the files a torrent describes are present beneath a candidate root.
+* **Manual location mode** — a torrent mode in which automatic torrent management does not own the torrent's placement.
+* **Pending Start** — a normal or forced Start request held by Find Location until discovery and any required assignment and recheck have completed.
+* **Start transaction** — the single operation that owns a pending Start from interception through its match, miss, cancellation or failure outcome.
 
 ## Discovery
 
@@ -47,7 +53,9 @@ The list is ordered, and the first entries preserve the placement the user asked
 
 Those two are destinations as well as search locations: they are where the torrent is written. Every root after them is a search location alone, and a tie decided in their favour leaves the torrent where it is already placed.
 
-The discovery roots follow, in the order the user configured them. A user who points at a directory has given the strongest available signal about where content lives, so those roots precede every root the application infers.
+Where an operation carries a pointed root, it follows the torrent's own paths. A user who points at a directory has given the strongest available signal about where content lives, so it precedes every root the application infers.
+
+The discovery roots follow, in the order the user configured them.
 
 The watched folder save paths come last. Each save path, whether a discovery root or a watched folder's, contributes candidates in three forms, in this order:
 
@@ -93,7 +101,7 @@ Discovery records what it chose, and records a torrent that matched nothing, so 
 
 ### Completion
 
-Discovery selects a location. Verification is the hash check the torrent undergoes on being added, which establishes the completed pieces.
+Discovery selects a location; it does not establish which pieces are valid. A torrent added at the selected location undergoes its add-time hash check before it can transfer payload data. A stopped torrent matched by a pending Start undergoes a recheck at the matched location before the Start request can proceed, whether or not assignment changed its location.
 
 Any amount of recoverable content is a success. A torrent the user was midway through downloading when they changed clients is a valid case, so no completion threshold applies.
 
@@ -104,6 +112,16 @@ Any amount of recoverable content is a success. A torrent the user was midway th
 Discovery runs when a torrent is added, and the selected location becomes the torrent's save path.
 
 For a torrent added from a magnet link, the files it declares are unknown until metadata arrives from the swarm. Discovery for such a torrent runs at the point metadata is received, before the torrent requests content pieces.
+
+### Start-triggered
+
+While **Find location when starting stopped torrents** is enabled, a normal or forced Start request for a stopped torrent in manual location mode begins a Start transaction. A torrent whose placement is owned by automatic torrent management follows its existing Start behaviour instead.
+
+The transaction holds the torrent stopped before the ordinary Start workflow can create its destination, allocate or write payload files, request content pieces, or otherwise begin downloading. It records whether the user requested normal or forced operation so the same request can be honored later.
+
+Where the torrent lacks metadata, it may connect only to obtain the metadata needed to discover its files. Receipt of metadata does not release the hold: discovery runs then, before any payload piece is requested.
+
+A match at the torrent's current save path or download path needs no location assignment but is rechecked through the transactional lifecycle below. A match at another location is assigned and then rechecked. A successful miss releases the hold and lets the ordinary Start workflow proceed at the configured destination.
 
 ### Manual
 
@@ -127,17 +145,39 @@ This is the answer for a user who knows where their content is and has not confi
 
 ### Assignment
 
-Assigning a location, whether from a match or from the file dialog, rechecks the torrent and returns it to service. The recheck establishes which pieces the content holds; on its completion the torrent starts, seeding where the content is complete and downloading the remainder where it is not.
+Assigning a location from the manual, batch or pointed modes, whether from a match or from the file dialog, rechecks the torrent while **Recheck automatically** is enabled and returns it to service as **Seed automatically** and **Leech automatically** allow. The recheck establishes which pieces the content holds.
 
 A torrent started this way is auto-managed, so the session's queueing limits govern how many of a recovered library run at once, exactly as they govern any other torrent.
 
 Rechecks arising from a batch are throttled by the session's limit on concurrently checking torrents, so a large selection queues rather than contending for the disk.
+
+An assignment owned by a Start transaction follows the mandatory recheck and explicit start decision below instead. The optional automatic recheck, seed and leech preferences do not suppress a Start request the user already made.
+
+## Transactional lifecycle
+
+Each torrent has at most one Start transaction. Its lifecycle is:
+
+1. **Hold.** Intercept the Start request before ordinary start behaviour. Keep the torrent stopped and record its requested normal or forced operating mode.
+2. **Search.** Run discovery asynchronously. If metadata is unavailable, obtain metadata alone and search when it arrives while continuing to hold payload activity.
+3. **Assign.** On a match at another location, assign that location without moving content from the former destination into it. If assignment requires storage movement, wait until the torrent reports the selected location. A match at the current save path or download path skips assignment and proceeds to recheck there.
+4. **Recheck.** Recheck every matched location, after assignment and storage movement where they are needed. This recheck is mandatory for a pending Start and runs regardless of **Recheck automatically**.
+5. **Decide.** Only successful completion of the required work permits the recorded Start request. Complete content starts seeding; partial content starts downloading only the pieces the check found missing; the requested normal or forced operating mode is preserved.
+
+A successful search with no match ends the feature-owned transaction and returns control to ordinary Start behaviour at the configured destination. A miss is not an error and does not leave feature-owned state behind. Every match remains in the transaction until its recheck succeeds, including a match at the current save path or download path.
+
+A Stop request during any phase cancels the pending Start and leaves the torrent stopped. Removing the torrent or shutting down also cancels the transaction, and no asynchronous result arriving afterward may assign, recheck or start it. Repeated Start requests coalesce into the active transaction rather than launching competing work; the eventual decision uses the user's latest explicit normal or forced mode.
+
+A discovery-operation, assignment, storage-movement or recheck failure is distinct from a successful miss. It clears the transaction, does not honor the pending Start, and leaves the torrent stopped and able to retry. A reported or cached checking state alone is not evidence that a recheck began or succeeded. Only the successful check-completion outcome advances the transaction to its Start decision.
+
+The execution log records whether the transaction continued after a match, continued after a miss, was cancelled, or failed, including the phase and reported reason for a failure. This is one final transaction outcome in addition to discovery's existing account of the location it selected.
 
 ## Timing
 
 The selected save path is in place before the torrent requests content pieces from peers, so a torrent whose content is fully present transfers no content data.
 
 A magnet link exchanges metadata with the swarm before its files are known. Discovery runs when that exchange completes, and content pieces are requested after it.
+
+For Start-triggered discovery, holding begins before the ordinary Start workflow. Search completes before assignment, assignment and any storage movement complete before recheck, and a successful recheck completes before any matched location is allowed to seed or download. A miss releases the ordinary Start workflow only after search completes successfully. Cancellation or failure never releases it.
 
 ## Configuration
 
@@ -149,11 +189,13 @@ Disabling the group leaves the settings within it holding the values the user ch
 
 **Find location automatically** governs discovery at torrent add. It selects a location for a torrent by finding where its content is stored.
 
-**Recheck automatically** governs the recheck that follows an assignment. Disabled, a torrent is assigned its location and left with its progress as it stood.
+**Find location when starting stopped torrents** governs Start-triggered discovery for stopped torrents in manual location mode. It delays Start while the transactional lifecycle searches and verifies a match, assigning it first where it differs from the current location. It is enabled by default and is independent of **Find location automatically**.
 
-**Seed automatically** starts a torrent whose recheck finds its content complete.
+**Recheck automatically** governs the recheck that follows an assignment made without a pending Start. Disabled, such a torrent is assigned its location and left with its progress as it stood. It does not disable the mandatory recheck after a pending Start finds content.
 
-**Leech automatically** starts a torrent whose recheck finds its content incomplete.
+**Seed automatically** starts a torrent whose automatic assignment recheck finds its content complete when no explicit Start is pending.
+
+**Leech automatically** starts a torrent whose automatic assignment recheck finds its content incomplete when no explicit Start is pending.
 
 Seeding and leeching are separated because the two carry different costs to the user. A user with limited upstream bandwidth, or on a connection where seeding is unwelcome, recovers a library without joining swarms as a seed; a user recovering a completed archive returns it to service without also resuming downloads they had abandoned.
 
@@ -169,13 +211,15 @@ Seeding and leeching are separated because the two carry different costs to the 
 
 The first iteration is behaviour rather than interface, and serves the GUI, the headless daemon and the WebUI alike.
 
-### Second iteration — manual and batch
+### Second iteration — Start-triggered, manual and batch
 
+* Start-triggered discovery for stopped torrents in manual location mode, with one transaction holding each Start through search, assignment, recheck and its final decision.
+* The **Find location when starting stopped torrents** preference, with its place in the options dialog group and the corresponding WebAPI key and web interface control.
 * The **Find location** context menu action, over single and multiple selections.
 * The dialog listing torrents that matched nothing.
 * Recheck and start on assignment, with the **Recheck automatically**, **Seed automatically** and **Leech automatically** preferences, their places in the options dialog group, and the corresponding WebAPI keys and web interface controls.
 
-The second iteration is confined to the GUI and builds on the discovery delivered by the first.
+The manual and batch surfaces are confined to the GUI. Start-triggered discovery is session behaviour shared by the GUI, headless daemon and WebUI, and builds on the discovery delivered by the first iteration.
 
 ### Third iteration — discovery roots
 
@@ -191,6 +235,7 @@ The third iteration removes the requirement that content sit under a path the ap
 * A WebUI interface for the manual, batch and pointed modes.
 * Fuzzy or heuristic name matching.
 * Discovery options attached to individual watched folder entries. Watched folders contribute their save paths to the search and carry no settings of their own for this feature; directories the user wants searched on their own terms are configured as discovery roots.
+* Repairing the application's pre-existing force-recheck failure. Find Location handles any recheck failure defensively by cancelling its pending Start, but the underlying recheck defect remains separate work.
 
 Each iteration is a separate submission, keeping every change reviewable and limited to one feature.
 
