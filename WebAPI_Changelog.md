@@ -2,6 +2,9 @@
 
 ## 2.16.2
 
+* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)
+  * `app/preferences` endpoint includes `find_location_enabled` (bool) and `find_location_on_add_enabled` (bool) options
+  * `app/setPreferences` endpoint allows to set `find_location_enabled` (bool) and `find_location_on_add_enabled` (bool) options
 * [#24870](https://github.com/qbittorrent/qBittorrent/pull/24870)
   * `app/preferences` endpoint includes `i2p_pex_enabled` (bool) option
   * `app/setPreferences` endpoint allows to set `i2p_pex_enabled` (bool) option

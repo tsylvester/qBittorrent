@@ -6,22 +6,22 @@ Each node addresses one source file and the support that file requires. Ticket i
 
 ## Epic 1 — automatic discovery
 
-*   `[ ]` [BE] src/base/bittorrent/`filesearcher` — pin the two-directory behaviour of `FileSearcher::search()`, add a non-mutating counting helper, add `FileSearcher::searchRoots()` scoring a torrent's own save path, its download path and search-only candidates together by match count, and add `candidateRoots()`. T0, T1, T2, T3
+*   `[X]` [BE] src/base/bittorrent/`filesearcher` — pin the two-directory behaviour of `FileSearcher::search()`, add a non-mutating counting helper, add `FileSearcher::searchRoots()` scoring a torrent's own save path, its download path and search-only candidates together by match count, and add `candidateRoots()`. T0, T1, T2, T3
 
-    *   `[ ]` `objective`
+    *   `[X]` `objective`
         *   `[X]` Problem: `FileSearcher::search()` looks for a torrent's files in exactly two directories, the save path then the download path, and takes the first holding any file. Content held anywhere else is treated as absent and downloaded again.
         *   `[X]` Functional: given a torrent's save path, its download path and an ordered list of search-only candidates, score the save path, then the download path when one is set, then the candidates, in that order; select the directory holding the most of the torrent's files, the earlier directory winning a tie, so the torrent's own paths win a tie and lose to any candidate holding more; and when no directory holds any file, produce exactly `search()`'s result.
         *   `[X]` Functional: build the ordered list of search-only candidates from a list of search roots, each search root contributing the root form, the name form and the source form, omitting any form equal to the torrent's save path or download path.
         *   `[X]` Functional: `FileSearcher::search()` keeps its signature and its first-found behaviour exactly, proven by a test written and run against it before any code in this node changes.
         *   `[X]` Non-functional: a directory that does not exist costs one existence test; a directory is abandoned once its count can no longer exceed the best count; scoring stops once a directory holds every file, so a save path or download path holding every file probes no candidate.
-        *   `[ ]` Non-functional: probing tests existence only, reading no file contents and computing no hashes. A directory that cannot be read, whether an own path or a candidate, contributes a count of zero and does not fail the search.
+        *   `[X]` Non-functional: probing tests existence only, reading no file contents and computing no hashes. A directory that cannot be read, whether an own path or a candidate, contributes a count of zero and does not fail the search.
 
     *   `[X]` `role`
         *   `[X]` Domain logic in `src/base/bittorrent`. `searchRoots()` runs on the session I/O thread, where `SessionImpl` moves `FileSearcher` into `m_ioThread`; `candidateRoots()` runs on the calling thread.
         *   `[X]` Out of scope: reading settings, the watched folder set, the session default save path or any singleton; logging; deriving the name form's name; any edit to `SessionImpl`, `TorrentImpl` or another caller. Each belongs to the `sessionimpl` or `torrentimpl` node.
 
-    *   `[ ]` `module`
-        *   `[ ]` Inside: probing a directory for a torrent's relative file names, scoring the torrent's own two paths together with search-only candidates, choosing the directory holding the most files, and deriving candidates from search roots and names. Outside: where search roots come from, whether discovery is enabled, what the torrent does with the result, and recording the outcome.
+    *   `[X]` `module`
+        *   `[X]` Inside: probing a directory for a torrent's relative file names, scoring the torrent's own two paths together with search-only candidates, choosing the directory holding the most files, and deriving candidates from search roots and names. Outside: where search roots come from, whether discovery is enabled, what the torrent does with the result, and recording the outcome.
 
     *   `[X]` `deps`
         *   `[X]` `base/path.h` — `Path`, `PathList`, `Path::exists()`, `Path::isEmpty()`, `Path::isRelative()`, `Path::rootItem()`, `Path::removedExtension(QStringView)`, `operator/`, `operator+`, `operator==`. A lower layer of `src/base`, depended on inward.
@@ -127,13 +127,13 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[X]` `directionality`
         *   `[X]` `filesearcher` depends inward on `base/path.h`, `base/global.h` and `base/bittorrent/common.h`, and on nothing that depends on it. Its consumers, `sessionimpl` and `torrentimpl`, sit beside it in `src/base/bittorrent` and depend on it one way. The tests depend on `qbt_base` only.
 
-    *   `[ ]` `requirements`
+    *   `[X]` `requirements`
         *   `[X]` BT-4, CN-1: `testbittorrentfilesearcher` is built as its own target and passes against the untouched `filesearcher` before the header element, and passes again against this node's `filesearcher.cpp`; `search()` keeps its declaration and body.
         *   `[X]` The torrent's own paths compete by count with the search-only candidates, win a tie, and produce the file names `search()` produces for the path that wins: `testSearchRootWithMoreBeatsSavePath`, `testSearchRootWithMoreBeatsDownloadPath`, `testCompleteSearchRootBeatsIncompleteSavePath`, `testSavePathWinsTieWithSearchRoot`, `testForceAppliedAtSavePathWithoutDownloadPath`, `testDownloadPathWithMoreBeatsSavePath`, `testOwnPathsMatchSearchWhenNoSearchRoots`, `testMissFallsBackToDestination`.
         *   `[X]` PS-1, PS-2: `testIncompleteVariantCounts`, `testMostFilesWins`.
         *   `[X]` PS-3: `countInDir` and `searchRoots()` call no function other than `Path::exists()` against the filesystem, directly or through `findInDir`.
-        *   `[ ]` PS-4: `testMostFilesWins`, `testEarlierRootWinsTie` and `testScoringDoesNotCarryRewrittenNames` prove that selection remains correct when abandonment is allowed. `testOwnPathFullMatchSkipsSearchRoots` proves that scoring stops before any candidate once the save path holds every file. They cannot observe how many `Path::exists()` calls occurred. The implementation review verifies the abandonment condition, the skip of an own path or candidate that does not exist, and the stop once `bestCount` equals the file count directly. No production API or test-only seam is added solely to expose an internal existence-call count.
-        *   `[ ]` PS-5: `testMostFilesWins`, `testEarlierRootWinsTie`, `testSavePathWinsTieWithSearchRoot`, `testDownloadPathWithMoreBeatsSavePath`, `testSearchRootWithMoreBeatsSavePath`.
+        *   `[X]` PS-4: `testMostFilesWins`, `testEarlierRootWinsTie` and `testScoringDoesNotCarryRewrittenNames` prove that selection remains correct when abandonment is allowed. `testOwnPathFullMatchSkipsSearchRoots` proves that scoring stops before any candidate once the save path holds every file. They cannot observe how many `Path::exists()` calls occurred. The implementation review verifies the abandonment condition, the skip of an own path or candidate that does not exist, and the stop once `bestCount` equals the file count directly. No production API or test-only seam is added solely to expose an internal existence-call count.
+        *   `[X]` PS-5: `testMostFilesWins`, `testEarlierRootWinsTie`, `testSavePathWinsTieWithSearchRoot`, `testDownloadPathWithMoreBeatsSavePath`, `testSearchRootWithMoreBeatsSavePath`.
         *   `[X]` PS-6, PS-7: `testMissFallsBackToDestination`, `testAbsentFolderCountsNone`.
         *   `[X]` PS-8, PS-9: `testScoringDoesNotCarryRewrittenNames`.
         *   `[X]` PS-11: `testForceNotAppliedAtSearchOnlyWinner`, `testForceAppliedAtSavePathWithoutDownloadPath`.
@@ -147,7 +147,7 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` CN-6: `countInDir` and `isContainedName` are private to `filesearcher.cpp`, and `findInDir` is unmodified.
         *   `[X]` BT-3, BT-5, BT-6: the three test executables are registered in `testFiles`; `testbittorrentcandidateroots.cpp` uses no fixture, and its `testPathListComparisonDiscriminates` proves the `PathList` comparison its other slots rely on; the other two resolve fixtures under `test/testdata/filesearcher`.
 
-*   `[ ]` [BE] src/base/bittorrent/`sessionimpl` — add the session settings `isFindLocationEnabled()` and `isFindLocationOnAddEnabled()` with their setters, each defaulting to enabled; declare `Session::setWatchedFolderSavePaths()` and hold the paths it receives; add `SessionImpl::findExistingContent()` composing the search-only candidates, searching through `FileSearcher::searchRoots()` and logging the outcome of a search of those candidates with its originating folder; and in `addTorrent_impl()` resolve a manual-mode torrent through it and adopt the resolved location as that torrent's save path, clearing its download path. T4, T5, T6
+*   `[X]` [BE] src/base/bittorrent/`sessionimpl` — add the session settings `isFindLocationEnabled()` and `isFindLocationOnAddEnabled()` with their setters, each defaulting to enabled; declare `Session::setWatchedFolderSavePaths()` and hold the paths it receives; add `SessionImpl::findExistingContent()` composing the search-only candidates, searching through `FileSearcher::searchRoots()` and logging the outcome of a search of those candidates with its originating folder; and in `addTorrent_impl()` resolve a manual-mode torrent through it and adopt the resolved location as that torrent's save path, clearing its download path. T4, T5, T6
 
     *   `[X]` `objective`
         *   `[X]` Problem: `addTorrent_impl()` resolves a torrent's save path through `findIncompleteFiles()`, which searches the save path and the download path alone.
@@ -159,12 +159,12 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` Functional: when a search-only candidate wins, record the torrent, the location, the folder that location came from and how many files were found; when search-only candidates are probed and no directory holds any file, record that nothing was found. When the torrent's save path or download path wins, record nothing, so torrent add logs what it logs without the feature.
         *   `[X]` Non-functional: composition has one implementation, reached by both call sites; probing stays on the session I/O thread; the caller is never blocked; a setter writes only when the new value differs from the stored one.
 
-    *   `[ ]` `role`
+    *   `[X]` `role`
         *   `[X]` Application service in `src/base/bittorrent`, owning the session's settings, its add path and the I/O thread that `FileSearcher` runs on.
-        *   `[ ]` Out of scope: reading `TorrentFilesWatcher`; the metadata-received call site, which is the `torrentimpl` node; the derivation of `actualSavePath` and `actualDownloadPath`; every member of `LoadTorrentParams` other than `savePath` and `downloadPath`; presentation of the settings, which is the `optionsdialog`, `appcontroller` and `preferences.html` nodes.
+        *   `[X]` Out of scope: reading `TorrentFilesWatcher`; the metadata-received call site, which is the `torrentimpl` node; the derivation of `actualSavePath` and `actualDownloadPath`; every member of `LoadTorrentParams` other than `savePath` and `downloadPath`; presentation of the settings, which is the `optionsdialog`, `appcontroller` and `preferences.html` nodes.
 
-    *   `[ ]` `module`
-        *   `[ ]` Inside: two persisted booleans and their accessors, holding the watched folder save paths, deciding whether discovery runs, composing the search, adopting the resolved location as the save path with an empty download path, and naming the outcome. Outside: where the watched folder save paths originate, how candidates are built and probed, and what the torrent does once its save path is set.
+    *   `[X]` `module`
+        *   `[X]` Inside: two persisted booleans and their accessors, holding the watched folder save paths, deciding whether discovery runs, composing the search, adopting the resolved location as the save path with an empty download path, and naming the outcome. Outside: where the watched folder save paths originate, how candidates are built and probed, and what the torrent does once its save path is set.
 
     *   `[X]` `deps`
         *   `[X]` `filesearcher.h` — `FileSearcher::searchRoots()`, `SearchRootsResult`, `candidateRoots()` and `FileSearchResult`. Beside it in `src/base/bittorrent`, depended on one way, and already included by `sessionimpl.cpp`.
@@ -214,13 +214,13 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[X]` `directionality`
         *   `[X]` `sessionimpl` depends on `filesearcher` beside it and on `settingvalue`, `global` and `logger` beneath it, all through includes it already carries. Watched folder save paths arrive through `Session::setWatchedFolderSavePaths()` from `torrentfileswatcher`, which already depends on `Session`, so no dependency on `torrentfileswatcher` is introduced.
 
-    *   `[ ]` `requirements`
+    *   `[X]` `requirements`
         *   `[X]` ST-1: the four accessors exist on `Session`, each getter defaulting to `true`, each setter assigning only on a changed value.
         *   `[X]` ST-2: `isFindLocationEnabled()` is its own key, `FindLocation/Enabled` under `BITTORRENT_SESSION_KEY`.
         *   `[X]` ST-3: `FindLocation/OnAddEnabled` is a separate key that no gate accessor writes.
-        *   `[ ]` CR-9: `findExistingContent()` composes the search roots from the watched folder save paths held through `setWatchedFolderSavePaths()`, the session default save path and the settings, and passes the composed list to `candidateRoots()` for both call sites.
+        *   `[X]` CR-9: `findExistingContent()` composes the search roots from the watched folder save paths held through `setWatchedFolderSavePaths()`, the session default save path and the settings, and passes the composed list to `candidateRoots()` for both call sites.
         *   `[X]` CR-7: `searchRoots()` takes the destination as the download path when set and the save path otherwise, from the two paths this node passes it.
-        *   `[ ]` ST-4, CN-5: with either setting off the result is `findIncompleteFiles()`'s and both the save path and download path assignments are skipped, so torrent add behaves as it does without the feature; a profile written by an earlier version reads both new settings as `true`.
+        *   `[X]` ST-4, CN-5: with either setting off the result is `findIncompleteFiles()`'s and both the save path and download path assignments are skipped, so torrent add behaves as it does without the feature; a profile written by an earlier version reads both new settings as `true`.
         *   `[X]` A torrent in automatic mode resolves through `findIncompleteFiles()` whatever the settings, and its `LoadTorrentParams` is untouched.
         *   `[X]` RL-1: the resolved save path is assigned in the existing continuation before `async_add_torrent()`, to `p.save_path` and, for a manual-mode torrent resolved to a search-only candidate, to `loadTorrentParams.savePath`, with `loadTorrentParams.downloadPath` emptied.
         *   `[X]` RL-3, RL-4: `searchRoots()` runs on `m_fileSearcher`'s thread, and `findExistingContent()` returns a future.
@@ -275,7 +275,7 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` Setting, replacing or removing a watched folder in the options dialog changes the set the next torrent add searches. Manual verification performs all three mutations and confirms the next add uses the new set without restarting. It also configures two watched folders whose save paths tie, restarts once, and confirms that sorting by watched folder path makes the same folder win before and after the restart.
         *   `[X]` `TorrentFilesWatcher` constructs a `QFileSystemWatcher`, a worker thread and a `Profile`-relative configuration path, and calls `Session::instance()`, none of which a `qbt_base` test provides, so this node is verified manually.
 
-*   `[ ]` [BE] src/base/bittorrent/`torrentimpl` — when metadata arrives, resolve a manual-mode torrent through `SessionImpl::findExistingContent()` and record the resolved location through `setSavePath()`, with its download path cleared, before `endReceivedMetadataHandling()`, so a torrent added from a magnet link reaches discovery before content pieces are requested and keeps the location discovery found. T7
+*   `[X]` [BE] src/base/bittorrent/`torrentimpl` — when metadata arrives, resolve a manual-mode torrent through `SessionImpl::findExistingContent()` and record the resolved location through `setSavePath()`, with its download path cleared, before `endReceivedMetadataHandling()`, so a torrent added from a magnet link reaches discovery before content pieces are requested and keeps the location discovery found. T7
 
     *   `[X]` `objective`
         *   `[X]` Problem: a torrent added from a magnet link has no file list at add, so the add-time search passes it by; when its metadata arrives, `handleSaveResumeData()` resolves through `findIncompleteFiles()`, which searches the torrent's save path and download path alone.
@@ -291,10 +291,10 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[X]` `module`
         *   `[X]` Inside: the metadata-received call site and its continuation. Outside: everything `findExistingContent()` does, and what `setSavePath()` does with the path it receives.
 
-    *   `[ ]` `deps`
+    *   `[X]` `deps`
         *   `[X]` `sessionimpl.h` — `SessionImpl::findExistingContent()` and `SessionImpl::findIncompleteFiles()`, reached through `SessionImpl *const m_session`, already included by `torrentimpl.cpp`.
         *   `[X]` `filesearcher.h` — `FileSearchResult`, already included by `torrentimpl.cpp`.
-        *   `[ ]` `TorrentImpl::isAutoTMMEnabled()`, `TorrentImpl::downloadPath()` and `TorrentImpl::setSavePath()`, public members used as they stand, and the private member `m_downloadPath`, assigned directly in the continuation — the same class.
+        *   `[X]` `TorrentImpl::isAutoTMMEnabled()`, `TorrentImpl::downloadPath()` and `TorrentImpl::setSavePath()`, public members used as they stand, and the private member `m_downloadPath`, assigned directly in the continuation — the same class.
 
     *   `[X]` `context_slice`
         *   `[X]` The call site is in `TorrentImpl::handleSaveResumeData()`, in the branch taken when `m_maintenanceJob` is `MaintenanceJob::HandleMetadata` and `params.ti` is set. There `metadata` is `TorrentInfo(*m_ltAddTorrentParams.ti)`, and `filePaths` carries the content layout and the renamed files applied just before the call.
@@ -318,7 +318,7 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` PS-10: `endReceivedMetadataHandling()` assigns the discovered location whatever proportion is present, with no threshold.
         *   `[X]` `TorrentImpl` requires a live session, so this node is verified by the dependency map's manual case for step 7, including a magnet-added manual-mode torrent whose content sits under a watched folder save path keeping that location after its check completes, and the same case with a configured download path keeping that location after its check, reporting an empty download path and moving nothing.
 
-*   `[ ]` [UI] src/gui/`optionsdialog` — add the checkable **Find location** group box `groupFindLocation` to the Downloads page, holding the **Find location automatically** checkbox `checkFindLocationOnAdd`, each loaded from and saved to `BitTorrent::Session`. T8
+*   `[X]` [UI] src/gui/`optionsdialog` — add the checkable **Find location** group box `groupFindLocation` to the Downloads page, holding the **Find location automatically** checkbox `checkFindLocationOnAdd`, each loaded from and saved to `BitTorrent::Session`. T8
 
     *   `[X]` `objective`
         *   `[X]` Problem: the two settings the session consults have no desktop control.
@@ -340,10 +340,10 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[X]` `context_slice`
         *   `[X]` `OptionsDialog::loadDownloadsTabOptions()` reads through `const auto *session = BitTorrent::Session::instance();` and connects `ThisType::enableApplyButton` in the same function; `OptionsDialog::saveDownloadsTabOptions()` writes through `auto *session = BitTorrent::Session::instance();`. `checkUnwantedFolder` is loaded and saved through `session` in those functions. `groupExcludedFileNames` is the checkable group box precedent, loaded from and saved to `session`, and connected with `&QGroupBox::toggled`.
 
-    *   `[ ]` src/gui/`optionsdialog.ui`
+    *   `[X]` src/gui/`optionsdialog.ui`
         *   `[X]` In `verticalLayout`, the `QVBoxLayout` of `scrollAreaWidgetContents_2`, add an `<item>` after the item holding `checkRecursiveDownload` and before the item holding `groupSavingManagement`.
         *   `[X]` The item holds `<widget class="QGroupBox" name="groupFindLocation">` with property `title` set to `Find location`, property `checkable` set to `true` and property `checked` set to `true`, laid out by a `QVBoxLayout` named `groupFindLocationLayout`, as `groupExcludedFileNames` is built.
-        *   `[ ]` That layout holds one item, `<widget class="QCheckBox" name="checkFindLocationOnAdd">`, with property `text` set to `Find location automatically` and property `toolTip` set to `When a torrent is added in Manual mode, or its metadata is received, look for its files in its save path, its download path and the save paths of the watched folders, and use the location holding the most of them.`
+        *   `[X]` That layout holds one item, `<widget class="QCheckBox" name="checkFindLocationOnAdd">`, with property `text` set to `Find location automatically` and property `toolTip` set to `When a torrent is added in Manual mode, or its metadata is received, look for its files in its save path, its download path and the save paths of the watched folders, and use the location holding the most of them.`
 
     *   `[X]` `interaction.spec`
         *   `[X]` Load: after `m_ui->checkRecursiveDownload->setChecked(pref->isRecursiveDownloadEnabled());`, `m_ui->groupFindLocation->setChecked(session->isFindLocationEnabled());` then `m_ui->checkFindLocationOnAdd->setChecked(session->isFindLocationOnAddEnabled());`.
@@ -399,7 +399,7 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` CN-5: a request omitting either key leaves that setting unchanged.
         *   `[X]` The endpoints are verified by the dependency map's manual case for step 9.
 
-*   `[ ]` [UI] src/webui/www/private/views/`preferences.html` — add the **Find location** fieldset to the Downloads tab, its legend checkbox `findLocationCheckbox` gating the `findLocationOnAddCheckbox` it holds, each loaded from and saved to `find_location_enabled` and `find_location_on_add_enabled`. T9
+*   `[X]` [UI] src/webui/www/private/views/`preferences.html` — add the **Find location** fieldset to the Downloads tab, its legend checkbox `findLocationCheckbox` gating the `findLocationOnAddCheckbox` it holds, each loaded from and saved to `find_location_enabled` and `find_location_on_add_enabled`. T9
 
     *   `[X]` `objective`
         *   `[X]` Problem: the two WebAPI keys have no control in the web interface, so a user of the headless daemon can set them only by request.
@@ -424,8 +424,8 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[X]` `interaction.spec`
         *   `[X]` `updateFindLocationEnabled()` sets `document.getElementById("findLocationOnAddCheckbox").disabled` to the negation of `document.getElementById("findLocationCheckbox").checked`. It runs from the legend checkbox's `onclick`, and once after both checkboxes are loaded.
 
-    *   `[ ]` src/webui/www/private/views/`preferences.html`
-        *   `[ ]` Markup: after the `formRow` holding `unwantedfolder_checkbox` and its blank line, and before the **Saving Management** fieldset, add a `<fieldset class="settings">` whose `<legend>` holds `<input type="checkbox" id="findLocationCheckbox" onclick="qBittorrent.Preferences.updateFindLocationEnabled();">` and `<label id="findLocationLabel" for="findLocationCheckbox">QBT_TR(Find location)QBT_TR[CONTEXT=OptionsDialog]</label>`, followed by a `<div class="formRow">` holding `<input type="checkbox" id="findLocationOnAddCheckbox" title="QBT_TR(When a torrent is added in Manual mode, or its metadata is received, look for its files in its save path, its download path and the save paths of the watched folders, and use the location holding the most of them.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationOnAddCheckbox">QBT_TR(Find location automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`, then a blank line. Indentation follows the `excludedFileNamesCheckbox` fieldset.
+    *   `[X]` src/webui/www/private/views/`preferences.html`
+        *   `[X]` Markup: after the `formRow` holding `unwantedfolder_checkbox` and its blank line, and before the **Saving Management** fieldset, add a `<fieldset class="settings">` whose `<legend>` holds `<input type="checkbox" id="findLocationCheckbox" onclick="qBittorrent.Preferences.updateFindLocationEnabled();">` and `<label id="findLocationLabel" for="findLocationCheckbox">QBT_TR(Find location)QBT_TR[CONTEXT=OptionsDialog]</label>`, followed by a `<div class="formRow">` holding `<input type="checkbox" id="findLocationOnAddCheckbox" title="QBT_TR(When a torrent is added in Manual mode, or its metadata is received, look for its files in its save path, its download path and the save paths of the watched folders, and use the location holding the most of them.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationOnAddCheckbox">QBT_TR(Find location automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`, then a blank line. Indentation follows the `excludedFileNamesCheckbox` fieldset.
         *   `[X]` Handler: after the definition of `updateExcludedFileNamesEnabled`, define `const updateFindLocationEnabled = () => { ... };` per the interaction spec, in the form of `updateExcludedFileNamesEnabled`.
         *   `[X]` Export: after `updateExcludedFileNamesEnabled: updateExcludedFileNamesEnabled,` in the object `exports` returns, add `updateFindLocationEnabled: updateFindLocationEnabled,`.
         *   `[X]` Load: after `document.getElementById("unwantedfolder_checkbox").checked = pref.use_unwanted_folder;`, add `document.getElementById("findLocationCheckbox").checked = pref.find_location_enabled;`, then `document.getElementById("findLocationOnAddCheckbox").checked = pref.find_location_on_add_enabled;`, then `updateFindLocationEnabled();`.
