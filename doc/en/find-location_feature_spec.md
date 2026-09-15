@@ -1,5 +1,7 @@
 # Find Location — Feature Specification
 
+Requirements are set out in [the product requirements](find-location_product_requirements.md), implementation in [the technical approach](find-location_technical_approach.md), and files, tests and verification in [the workplan](find-location_workplan.md).
+
 ## Problem
 
 A `.torrent` file records what content is, not where a particular user keeps it. The association between a torrent and the directory holding its content lives only in the client that downloaded it.
@@ -31,41 +33,44 @@ Repairing this by hand means noticing each redownload, stopping the torrent, set
 
 * **Watched folder** — a directory monitored for new `.torrent` files. Each watched folder carries a save path that torrents found there are assigned.
 * **Location**, or **save path** — the directory a torrent's content is stored under.
-* **Candidate root** — a directory that discovery probes for a torrent's content, whatever its origin.
+* **Own paths** — the torrent's configured save path and, where one is set, its download path.
+* **Candidate root** — a directory discovery searches for a torrent's content that is not one of the torrent's own paths, whatever its origin.
 * **Root form**, **name form**, **source form** — the candidates a search root contributes, named in *Candidate roots* below. A probed root contributes all three; an enumerated root contributes the root form and the source form.
 * **Discovery root** — a directory the user configures for searching, held with its own options.
 * **Pointed root** — a directory the user chooses for one operation.
-* **Probe** — a count of how many of the files a torrent describes are present beneath a candidate root.
+* **Probe** — a count of how many of the files a torrent describes are present beneath a location, whether one of the torrent's own paths or a candidate root.
 * **Manual location mode** — a torrent mode in which automatic torrent management does not own the torrent's placement.
 * **Pending Start** — a normal or forced Start request held by Find Location until discovery and any required assignment and recheck have completed.
 * **Start transaction** — the single operation that owns a pending Start from interception through its match, miss, cancellation or failure outcome.
 
 ## Discovery
 
-Discovery selects a save path for a torrent by probing a list of candidate roots and choosing the one where the torrent's content is found.
+Discovery selects a save path for a torrent by probing its own paths and a list of candidate roots and choosing the location where the most of the torrent's content is found.
 
 ### Candidate roots
 
-The list is ordered, and the first entries preserve the placement the user asked for:
+The locations are ordered, and the first entries preserve the placement the user asked for:
 
 1. The save path configured for the torrent.
-2. The download path configured for the torrent.
+2. The download path configured for the torrent, where one is set.
 
-Those two are destinations as well as search locations: they are where the torrent is written. Every root after them is a search location alone, and a tie decided in their favour leaves the torrent where it is already placed.
+Those two are destinations as well as search locations: they are where the torrent is written. Every location after them is a candidate root, a search location alone, and a tie decided in their favour leaves the torrent where it is already placed. A candidate equal to one of the torrent's own paths is not searched again.
 
 Where an operation carries a pointed root, it follows the torrent's own paths. A user who points at a directory has given the strongest available signal about where content lives, so it precedes every root the application infers.
 
 The discovery roots follow, in the order the user configured them.
 
-The watched folder save paths come last. Each save path, whether a discovery root or a watched folder's, contributes candidates in three forms, in this order:
+The watched folder save paths come last, ordered by watched folder path so that ties between them resolve the same way every time. A watched folder contributes the save path configured on it; a folder in automatic mode or with a category contributes that configured save path rather than its category's path, a relative save path resolves against the session default, and a folder with no save path configured contributes the session default. Duplicate roots are collapsed by the platform's path case rule, since watched folders commonly share a save path.
 
-* The **root form** — the save path itself.
-* The **name form** — the save path joined with the torrent's name.
-* The **source form** — the save path joined with the basename of the `.torrent` file.
+Each search root, whether a discovery root or a watched folder's save path, contributes candidates in three forms, in this order:
 
-The root form covers content stored as the torrent describes it, since a multi-file torrent carries its own root folder in the paths it declares. The name form covers content nested inside a directory of the torrent's name, which arises for single-file torrents and for content the previous client placed under a folder of its own. The source form accommodates a `.torrent` file whose name reflects the directory even where the torrent's internal name does not, which describes a library organised by hand; its position last keeps it from outranking a better match, and a root holding none of the content is abandoned after a few tests.
+* The **root form** — the search root itself.
+* The **name form** — the search root joined with the torrent's name. For a single-file torrent without a root folder, the name is the file's stem, the folder qBittorrent itself nests such a file in.
+* The **source form** — the search root joined with the name of the `.torrent` file, with its `.torrent` extension removed. Only a torrent added from a local `.torrent` file has a source form; a magnet link contributes none.
 
-Where a watched folder has no save path configured it contributes the session default. Duplicate roots are collapsed, since watched folders commonly share a save path.
+The root form covers content stored as the torrent describes it, since a multi-file torrent carries its own root folder in the paths it declares. The name form covers content nested inside a directory of the torrent's name, which arises for single-file torrents and for content the previous client placed under a folder of its own. The source form accommodates a `.torrent` file whose name reflects the directory even where the torrent's internal name does not, which describes a library organised by hand; its position last means it wins only on a higher count, never a tie against the forms before it, and a root holding none of the content is abandoned after a few tests.
+
+A name or source form that would resolve outside its search root is dropped.
 
 A root on storage that is not present when discovery runs contributes nothing and stops nothing. A discovery root on a removable disk or an unmounted share leaves every other root resolving as it would have.
 
@@ -79,25 +84,25 @@ The listing does the work of the name form, so an enumerated root contributes th
 
 Names are matched against the listing by the same case rule the platform applies to paths, so a listing resolves whatever probing that root directly would have resolved.
 
-The listing is built for the operation that needs it and discarded when that operation ends.
+The listing is built for the operation that needs it and discarded when that operation ends. One listing is shared by every torrent in a selection, in a **Search folder...** action, and in automatic additions arriving while an add operation is in flight.
 
 A pointed root is enumerated on the same terms.
 
 ### Probing
 
-A probe counts how many of the files the torrent declares are present relative to the candidate root. A file counts as present when it exists under its declared name, or under that name with qBittorrent's incomplete-file extension appended, which is how partially downloaded content is recognised.
+A probe counts how many of the files the torrent declares are present relative to a location. A file counts as present when it exists under its declared name, or under that name with qBittorrent's incomplete-file extension appended, which is how partially downloaded content is recognised.
 
-A probe abandons a root once its count can no longer overtake the best root found so far.
+A location that does not exist costs one test. A probe abandons a location once its count can no longer overtake the best location found so far, and probing stops once a location holds every file.
 
 A probe reads no file contents and computes no hashes.
 
 ### Selection
 
-A root where no file is found is not a match. Among roots where at least one file is found, the root with the most files present wins, and the earliest root in the list wins a tie. Ordering therefore decides in favour of the user's configured placement whenever it holds the content.
+A location where no file is found is not a match. Among locations where at least one file is found, the location with the most files present wins, and the earliest location in the order wins a tie. The torrent stays at its configured placement whenever that placement holds at least as many of its files as any other location; a searched location holding more wins, so a torrent started against the wrong folder is placed where a complete copy of its content already sits.
 
-A torrent that matches no root is placed at its configured destination.
+A torrent that matches no location is placed at its configured destination.
 
-Discovery records what it chose, and records a torrent that matched nothing, so a user asking why a torrent landed where it did has an account of it in the log.
+Discovery records a location found outside the torrent's own paths, naming the folder it came from and how many files were found, and records a torrent whose searched locations held none of its files, so a user asking why a torrent landed where it did has an account of it in the log. It records nothing when the torrent's own save path or download path is chosen.
 
 ### Completion
 
@@ -109,13 +114,15 @@ Any amount of recoverable content is a success. A torrent the user was midway th
 
 ### Automatic
 
-Discovery runs when a torrent is added, and the selected location becomes the torrent's save path.
+Discovery runs when a torrent in manual location mode is added. A torrent whose placement is owned by automatic torrent management resolves as it does without the feature, and a torrent added as already complete, skipping its hash check, keeps its path.
 
-For a torrent added from a magnet link, the files it declares are unknown until metadata arrives from the swarm. Discovery for such a torrent runs at the point metadata is received, before the torrent requests content pieces.
+A torrent adopted at a location outside its own paths takes that location as its save path with no separate incomplete-download location, so its content is not moved after its check.
+
+For a torrent added from a magnet link, the files it declares are unknown until metadata arrives from the swarm. Discovery for such a torrent in manual location mode runs at the point metadata is received, before the torrent requests content pieces.
 
 ### Start-triggered
 
-While **Find location when starting stopped torrents** is enabled, a normal or forced Start request for a stopped torrent in manual location mode begins a Start transaction. A torrent whose placement is owned by automatic torrent management follows its existing Start behaviour instead.
+While **Find location when starting stopped torrents** is enabled, a normal or forced Start request for a stopped torrent in manual location mode begins a Start transaction. A torrent whose placement is owned by automatic torrent management, or a torrent that is checking, follows its existing Start behaviour instead.
 
 The transaction holds the torrent stopped before the ordinary Start workflow can create its destination, allocate or write payload files, request content pieces, or otherwise begin downloading. It records whether the user requested normal or forced operation so the same request can be honored later.
 
@@ -125,13 +132,13 @@ A match at the torrent's current save path or download path needs no location as
 
 ### Manual
 
-A **Find location** action sits alongside **Set location...** in the transfer list context menu. It runs discovery for the selected torrent and assigns the result.
+A **Find location** action sits directly after **Set location...** in the transfer list context menu, shown while the selection holds metadata and the **Find location** group is enabled. It runs discovery for the selected torrent and assigns the result.
 
 Where discovery finds no match, the **Set location** file dialog opens, so the user targets the location by hand.
 
 ### Batch
 
-Over a multiple selection, **Find location** runs discovery for every selected torrent. Torrents that match are assigned their locations.
+Over a multiple selection, **Find location** runs discovery for every selected torrent. Torrents that match are assigned their locations. Invoking the action again while an operation is active adds only torrents that are not already part of it.
 
 Torrents that match nothing are collected and presented as a list, from which the user abandons the operation or steps through the entries setting each location. This reduces the number of dialogs a batch import requires.
 
@@ -145,7 +152,7 @@ This is the answer for a user who knows where their content is and has not confi
 
 ### Assignment
 
-Assigning a location from the manual, batch or pointed modes, whether from a match or from the file dialog, rechecks the torrent while **Recheck automatically** is enabled and returns it to service as **Seed automatically** and **Leech automatically** allow. The recheck establishes which pieces the content holds.
+Assigning a location from the manual, batch or pointed modes, whether from a match or from the file dialog, follows **Set location...**, rechecks the torrent while **Recheck automatically** is enabled, and returns it to service as **Seed automatically** and **Leech automatically** allow. The recheck establishes which pieces the content holds. An incomplete torrent with a separate download path keeps its content in that download path, as **Set location...** leaves it, and is not rechecked. Assigning a torrent the location it is already being assigned is merged into that assignment.
 
 A torrent started this way is auto-managed, so the session's queueing limits govern how many of a recovered library run at once, exactly as they govern any other torrent.
 
@@ -167,7 +174,7 @@ A successful search with no match ends the feature-owned transaction and returns
 
 A Stop request during any phase cancels the pending Start and leaves the torrent stopped. Removing the torrent or shutting down also cancels the transaction, and no asynchronous result arriving afterward may assign, recheck or start it. Repeated Start requests coalesce into the active transaction rather than launching competing work; the eventual decision uses the user's latest explicit normal or forced mode.
 
-A discovery-operation, assignment, storage-movement or recheck failure is distinct from a successful miss. It clears the transaction, does not honor the pending Start, and leaves the torrent stopped and able to retry. A reported or cached checking state alone is not evidence that a recheck began or succeeded. Only the successful check-completion outcome advances the transaction to its Start decision.
+A discovery-operation, metadata-preparation, assignment, storage-movement or recheck failure is distinct from a successful miss. It clears the transaction, does not honor the pending Start, and leaves the torrent stopped and able to retry. A reported or cached checking state alone is not evidence that a recheck began or succeeded. Only the successful check-completion outcome advances the transaction to its Start decision.
 
 The execution log records whether the transaction continued after a match, continued after a miss, was cancelled, or failed, including the phase and reported reason for a failure. This is one final transaction outcome in addition to discovery's existing account of the location it selected.
 
@@ -181,13 +188,13 @@ For Start-triggered discovery, holding begins before the ordinary Start workflow
 
 ## Configuration
 
-The feature's settings form a single group in the options dialog, titled **Find location**. The group carries a state of its own, so the feature is enabled or disabled as a whole, and the settings within it adjust how it behaves. The group and every setting are enabled by default, and each is held as a preference.
+The feature's settings form a single group in the options dialog, titled **Find location**. The group carries a state of its own, so the feature is enabled or disabled as a whole, and the settings within it adjust how it behaves. The group and every setting are enabled by default, and each is held as a setting of its own.
 
 Every setting is reachable from the web interface as well as the desktop one, so a user running the headless daemon configures the feature on the same terms as a user running the application.
 
 Disabling the group leaves the settings within it holding the values the user chose, so re-enabling the group restores that configuration.
 
-**Find location automatically** governs discovery at torrent add. It selects a location for a torrent by finding where its content is stored.
+**Find location automatically** governs discovery at torrent add and when a torrent's metadata is received. It selects a location for a torrent by finding where its content is stored.
 
 **Find location when starting stopped torrents** governs Start-triggered discovery for stopped torrents in manual location mode. It delays Start while the transactional lifecycle searches and verifies a match, assigning it first where it differs from the current location. It is enabled by default and is independent of **Find location automatically**.
 
@@ -199,14 +206,14 @@ Disabling the group leaves the settings within it holding the values the user ch
 
 Seeding and leeching are separated because the two carry different costs to the user. A user with limited upstream bandwidth, or on a connection where seeding is unwelcome, recovers a library without joining swarms as a seed; a user recovering a completed archive returns it to service without also resuming downloads they had abandoned.
 
-**Discovery roots** is a list rather than a checkbox. Each entry is a directory with its own options, of which recursion is one, held the way watched folders are held. The list sits within the group and is empty by default.
+**Discovery roots** is a list rather than a checkbox. Each entry is a directory with its own options, of which recursion is one, and the list keeps the order the user configured. The list sits within the group and is empty by default.
 
 ## Scope
 
 ### First iteration — automatic discovery
 
-* Candidate root construction and probing.
-* Discovery at torrent add, and at metadata received.
+* Candidate root construction from the watched folder save paths, probing, and selection by count among the torrent's own paths and those candidates.
+* Discovery at torrent add, and at metadata received, for torrents in manual location mode, with an adopted torrent carrying no separate incomplete-download location.
 * The **Find location** options dialog group and the **Find location automatically** preference it holds, with the corresponding WebAPI keys and their web interface controls.
 
 The first iteration is behaviour rather than interface, and serves the GUI, the headless daemon and the WebUI alike.
@@ -219,14 +226,15 @@ The first iteration is behaviour rather than interface, and serves the GUI, the 
 * The dialog listing torrents that matched nothing.
 * Recheck and start on assignment, with the **Recheck automatically**, **Seed automatically** and **Leech automatically** preferences, their places in the options dialog group, and the corresponding WebAPI keys and web interface controls.
 
-The manual and batch surfaces are confined to the GUI. Start-triggered discovery is session behaviour shared by the GUI, headless daemon and WebUI, and builds on the discovery delivered by the first iteration.
+The manual and batch surfaces are confined to the GUI. Start-triggered discovery is session behaviour shared by the GUI, headless daemon and WebUI, and builds on the discovery delivered by the first iteration. The second iteration closes issue [#8261](https://github.com/qbittorrent/qBittorrent/issues/8261).
 
 ### Third iteration — discovery roots
 
 * Discovery roots, their per-root options, and their place in the candidate root order.
-* Enumeration of recursive roots.
+* Enumeration of recursive roots, with one listing shared by every torrent of an operation.
+* Batch operations over several torrents, sharing one listing per root.
 * The pointed root offered from the list of torrents that matched nothing.
-* The discovery root list in the options dialog group, its per-root dialog, and the corresponding WebAPI keys and web interface controls.
+* The discovery root list in the options dialog group, its per-root dialog, and the corresponding WebAPI key and web interface control.
 
 The third iteration removes the requirement that content sit under a path the application already knows.
 

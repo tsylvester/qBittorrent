@@ -1,8 +1,8 @@
 # Find Location — Implementation Plan
 
-Implement Find Location as three independently reviewable submissions. Produce one commit per submission, using the exact commit subject and commit gate specified below.
+Implement Find Location as three independently reviewable submissions, each landing as one commit with the subject and commit gate specified below.
 
-Treat steps 0 through 22 in [the dependency map](find-location_dependency_map.md) as dependency-ordered implementation units inside those three commits. Do not turn those steps into separate commits. Follow [the workplan](find-location_workplan.md) for the exact files, symbols, existing-code context, required edits, tests, integration scenarios and commit contents. Where an older planning document conflicts with the workplan, the workplan controls the implementation.
+[The workplan](find-location_workplan.md) is authoritative for the files, symbols, existing-code context, edits, tests, manual verification cases, integration scenarios and commit contents of every submission. Steps 0 through 22 in [the dependency map](find-location_dependency_map.md) are dependency-ordered implementation units inside the three commits, never separate commits.
 
 The requirements are defined by [the product requirements](find-location_product_requirements.md), [the feature specification](find-location_feature_spec.md), [the technical requirements](find-location_technical_requirements.md), [the non-functional requirements](find-location_nfr.md), [the system architecture](find-location_system_architecture.md) and [the technical approach](find-location_technical_approach.md).
 
@@ -12,14 +12,22 @@ Implement tickets T0 through T9 as one submission.
 
 ### Required implementation order
 
-1. Complete dependency-map step 0 before step 1, and step 1 before step 2.
-2. Complete steps 3 and 4 independently of steps 0 through 2.
-3. Complete step 5 only after steps 2, 3 and 4.
-4. Complete steps 6 and 7 only after step 5. Either may be implemented first.
-5. Complete steps 8 and 9 only after step 4. Either may be implemented before or after steps 5 through 7, but include both in this submission.
-6. Preserve `FileSearcher::findInDir()` and its existing behaviour. Add the non-mutating counting primitive and the multi-root search exactly as directed by the Epic 1 workplan; do not implement the dependency map's stale statement that `findInDir()` returns a count.
-7. Keep search-root composition and outcome logging in the session implementation as directed by the workplan. Do not move outcome logging into `FileSearcher`.
-8. Store the Find Location settings in the BitTorrent session settings identified by the workplan. Do not relocate them to `Preferences`.
+1. Complete step 0 first: register `testbittorrentfilesearcher.cpp`, `testbittorrentfilesearchermultiroot.cpp` and `testbittorrentcandidateroots.cpp` in `test/CMakeLists.txt`, build the `testbittorrentfilesearcher` target alone against the unmodified `filesearcher`, and run it green.
+2. Steps 1, 2 and 3 share `filesearcher.h` and `filesearcher.cpp`. Add the `filesearcher.h` declarations next, so `testbittorrentfilesearchermultiroot` and `testbittorrentcandidateroots` compile and fail to link, which is their red state. Build only named test targets until `filesearcher.cpp` is complete, then run all three test executables green.
+3. Complete step 4 independently of steps 0 through 3.
+4. Complete step 5, `SessionImpl::findExistingContent()` together with `TorrentFilesWatcher::updateSessionWatchedFolderSavePaths()`, only after steps 2, 3 and 4.
+5. Complete steps 6 and 7 only after step 5. Either may be implemented first.
+6. Complete steps 8 and 9 only after step 4. Either may be implemented before or after steps 5 through 7, and both are included in this submission.
+
+### Design
+
+* `FileSearcher::search()`, `findInDir()` and `SessionImpl::findIncompleteFiles()` keep their signatures and behaviour. `countInDir()`, beside `findInDir()` in the anonymous namespace of `filesearcher.cpp`, counts a directory's matches without rewriting file names.
+* `FileSearcher::searchRoots()` scores the torrent's save path, then its download path when one is set, then the search-only candidates, by the number of the torrent's files each holds. The directory holding the most files wins and the earlier directory wins a tie, so the torrent's own paths win a tie and lose to any candidate holding more. When no directory holds any file, the result is `search()`'s result.
+* `candidateRoots()` is a pure function returning the search-only candidates, excluding the torrent's save path and download path.
+* `TorrentFilesWatcher` pushes the watched folder save paths into the session through `Session::setWatchedFolderSavePaths()`. `SessionImpl::findExistingContent()` composes the search roots from them and records the outcome in the execution log: the torrent, location, originating folder and count when a search-only candidate wins; a miss when candidates were probed and no directory matched; nothing when the torrent's save path or download path wins.
+* At add and at metadata receipt, a manual-mode torrent whose winning location is a search-only candidate takes that location as its save path with an empty download path, so no storage move follows its check. An automatic-mode torrent resolves through `findIncompleteFiles()`.
+* The source form derives from a local `.torrent` file name alone; a magnet URI contributes none.
+* The settings are the BitTorrent session settings `FindLocation/Enabled` and `FindLocation/OnAddEnabled`, each defaulting to enabled, exposed through `Session` and on `app/preferences` and `app/setPreferences` as `find_location_enabled` and `find_location_on_add_enabled`.
 
 ### Commit gate
 
@@ -27,13 +35,15 @@ Create one commit with the exact subject:
 
 `Find existing torrent content before downloading`
 
-Create it only after every Epic 1 workplan node is implemented; the automated tests and fixtures required by the workplan pass; the dependency map's manual cases for steps 6 through 9 pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
+Create it only after every Epic 1 workplan node is implemented; the three test executables pass against their fixtures; the manual verification cases for steps 6 through 9, as the Epic 1 workplan nodes enumerate them, pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
 
-Include the two WebAPI preference keys and one changelog entry required by the workplan. Leave `API_VERSION` and the changelog version headings unchanged.
+Include the `find_location_enabled` and `find_location_on_add_enabled` keys and one changelog entry linking the pull request by the number GitHub assigns when it is opened. `API_VERSION` and the changelog version headings are set by the maintainers.
+
+The pull-request description states that `searchRoots()` probes the winning directory twice, once through `countInDir()` and once through the unchanged `findInDir()`, and offers a single pass that records the winner's names while counting as an alternative for the maintainers to choose.
 
 ## Submission 2 — Start-triggered, manual, batch and assignment
 
-Implement tickets T10 through T15 as one submission. Extend the existing-session work without changing the add-time and metadata-time behaviour implemented by Submission 1.
+Implement tickets T10 through T15 as one submission. Add-time and metadata-time discovery keep the behaviour Submission 1 delivers.
 
 ### Required implementation order
 
@@ -42,19 +52,21 @@ Implement tickets T10 through T15 as one submission. Extend the existing-session
 3. Complete step 12 only after step 5.
 4. Complete step 13 only after steps 11 and 12.
 5. Complete step 14 only after step 13.
-6. Complete step 15 only after step 10. It may be implemented while steps 11 through 14 are in progress, but include it in this submission.
+6. Complete step 15 only after step 10. It may be implemented while steps 11 through 14 are in progress, and is included in this submission.
 
-### Required transaction scope
+### Transaction scope
 
-Implement the Start-triggered transaction in `SessionImpl` through the existing lifecycle hooks identified by the architecture, technical approach and Epic 2 workplan. Make only the specified conditional delegation from `TorrentImpl::start()` and the minimum Stop-origin distinction required for cancellation. Do not introduce a replacement Start/Stop API, lifecycle notification layer, metadata path, storage-move queue or force-recheck implementation.
+The Start-triggered transaction lives in `SessionImpl`, held in `m_locationAssignments` and advanced through the existing lifecycle hooks the Epic 2 workplan identifies. `TorrentImpl` gains one `interceptFindLocationStart()` call in `start()` and the private `stop(bool)` Stop-origin overload that cancellation requires. `SessionImpl::searchExistingContent()` is the search shared by add-time discovery and the transaction, and `findExistingContent()` keeps its signature and add-time behaviour. Public `Torrent::start()` and `Torrent::stop()` signatures, the metadata path, the storage move queue, the location setters and `forceRecheck()` are unchanged, and the feature adds no lifecycle notification layer.
 
-Implement the transaction in this order for each eligible Start request: intercept and preserve the requested normal or forced Start mode; hold payload activity; wait for metadata when necessary; search; settle the selected location through the existing location operations; wait for any required move; issue the feature recheck; wait for successful check completion; then release the preserved Start request through the existing Start body. On a search miss, release the preserved Start request without assignment or recheck.
+For each eligible Start request the transaction runs in this order: intercept and preserve the requested normal or forced Start mode; hold payload activity; wait for metadata when necessary; search; settle the selected location through the existing location operations; wait for any required move; issue the feature recheck; wait for successful check completion; then release the preserved Start request through the existing Start body. A search miss releases the preserved Start request without assignment or recheck.
 
-Coalesce repeated Start requests for the same torrent, retain the last explicit Start mode, and prevent recursive interception when releasing that request. Cancel and erase feature-owned state on explicit Stop, torrent removal and session shutdown. On search, metadata, movement or recheck failure, erase the pending Start before applying ordinary stopped/error handling and never release Start. Ignore late and unrelated lifecycle callbacks.
+Repeated Start requests for the same torrent coalesce, the last explicit Start mode is retained, and releasing the request passes through the interception without re-entering it. Explicit Stop, torrent removal and session shutdown cancel and erase feature-owned state. A search, metadata, movement or recheck failure erases the pending Start before ordinary stopped or error handling applies, and never releases Start. Late and unrelated lifecycle callbacks leave the transaction untouched.
 
-When the Start-trigger setting is disabled, the master gate is disabled, the torrent is ineligible, or no transaction owns the callback, preserve the existing behaviour unchanged. Perform discovery asynchronously and never block the GUI thread. Before a search miss or a successful feature recheck, do not allocate, create, truncate or write payload files and do not request payload blocks.
+With the Start-trigger setting disabled, the master gate disabled, an ineligible torrent, or no transaction owning the callback, behaviour is the existing behaviour. Discovery runs asynchronously and never blocks the GUI thread. Before a search miss or a successful feature recheck, no payload file is allocated, created, truncated or written and no payload block is requested.
 
-Treat the general force-recheck defect as separate work. Add only the feature-owned failure cleanup required to prevent a failed Find Location transaction from releasing Start or retaining stale transaction state. Do not repair or redesign `TorrentImpl::forceRecheck()` in this submission.
+A manual **Find location** assignment follows **Set location...** semantics: an incomplete torrent with a download path keeps its storage in that download path. Add-time and metadata-time adoption from Submission 1 clears the download path instead.
+
+The general force-recheck defect, [qBittorrent issue #14216](https://github.com/qbittorrent/qBittorrent/issues/14216), is separate work recorded in the workplan's To Do list. This submission adds only the feature-owned failure cleanup that keeps a failed Find Location transaction from releasing Start or retaining stale state, and `TorrentImpl::forceRecheck()` is unchanged.
 
 ### Commit gate
 
@@ -64,7 +76,7 @@ Create one commit with the exact subject:
 
 Put `Closes #8261.` in the commit body. Create the commit only after every Epic 2 workplan node is implemented; all seventeen Epic 2 integration scenarios pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
 
-Include `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on both WebAPI preference endpoints, their desktop and WebUI controls, and one changelog entry as directed by the workplan. Leave `API_VERSION` and the changelog version headings unchanged.
+Include `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on both WebAPI preference endpoints, their desktop and WebUI controls, and one changelog entry linking the pull request. `API_VERSION` and the changelog version headings are set by the maintainers.
 
 ## Submission 3 — discovery roots
 
@@ -85,14 +97,14 @@ Create one commit with the exact subject:
 
 `Search discovery roots and pointed folders`
 
-Create it only after every Epic 3 workplan node is implemented; the manual cases for steps 19 through 22 and all eight Epic 3 integration scenarios pass; the Epic 2 integration scenarios still pass; the full build and test suite pass under `-DTESTING=ON`; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
+Create it only after every Epic 3 workplan node is implemented; the manual cases for steps 19 through 22 and all eight Epic 3 integration scenarios pass; the Epic 2 integration scenarios still pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
 
-Include `find_location_discovery_roots` on both WebAPI preference endpoints, its WebUI controls and one changelog entry as directed by the workplan. Leave `API_VERSION` and the changelog version headings unchanged.
+Include `find_location_discovery_roots` on both WebAPI preference endpoints, its WebUI controls and one changelog entry linking the pull request. `API_VERSION` and the changelog version headings are set by the maintainers.
 
 ## Commit and pull-request requirements
 
-Use exactly the three commit subjects specified by this plan. Keep each subject capitalized, imperative, no longer than 50 characters and without a trailing period. In each commit body, explain the behaviour and the reason for the change, and record issue closure only where the workplan requires it.
+The three commit subjects are exactly those specified by this plan: capitalized, imperative, no longer than 50 characters and without a trailing period. Each commit body explains the behaviour and the reason for the change, and records issue closure only where this plan requires it.
 
-Make each submission independently reviewable and keep unrelated changes out of it. Rebase the submission onto the target branch before final verification. Do not split dependency-map steps into preparatory commits, test-only commits, UI commits or WebAPI commits.
+Each submission is independently reviewable and holds no unrelated change. Every dependency-map step, including its tests, user-interface changes and WebAPI changes, lands inside its submission's single commit. The submission is rebased onto the target branch before final verification, and its changelog entry sits under the version heading at the top of `WebAPI_Changelog.md` after that rebase.
 
-In each pull-request description, state the submission's scope and dependency on preceding submissions, enumerate the automated and manual verification performed, and describe the disabled-state regression result. Include screenshots for user-interface changes. A human contributor must review, take responsibility for and submit each pull request in accordance with the repository contribution policy.
+Each pull-request description states the submission's scope and its dependency on preceding submissions, enumerates the automated and manual verification performed, describes the disabled-state regression result, and includes screenshots for user-interface changes. A human contributor reviews, takes responsibility for and submits each pull request in accordance with the repository contribution policy.

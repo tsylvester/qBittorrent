@@ -1,14 +1,16 @@
 # Find Location — Technical Approach
 
-How the behaviour in [the feature specification](find-location_feature_spec.md) maps onto the codebase.
+How the behaviour in [the feature specification](find-location_feature_spec.md) maps onto the codebase. The files, symbols, edits, tests and verification of every step are set out in [the workplan](find-location_workplan.md).
 
 ## Shape of the change
 
-The change is additive except for two narrow implementation edits. A multi-root search method joins `FileSearcher` beside `search()`, a session method joins `SessionImpl` beside `findIncompleteFiles()`, and a virtual joins the `BitTorrent::Session` interface. Existing callers keep their signatures.
+The change is additive around a small set of edits to existing code. `FileSearcher::searchRoots()` joins `FileSearcher` beside `search()`, `SessionImpl::findExistingContent()` joins `SessionImpl` beside `findIncompleteFiles()`, and the `BitTorrent::Session` interface gains `setWatchedFolderSavePaths()`, the Find Location setting accessors, `findTorrentLocation()`, `assignTorrentLocation()`, the `torrentLocationFound` signal and `findTorrentLocations()`. Existing callers keep their signatures, and `search()`, `findInDir()` and `findIncompleteFiles()` keep their behaviour.
 
-`findInDir()`, private to a single translation unit, changes its return type. `TorrentImpl::start()` gains one conditional delegation after its existing error-clearing and operating-mode preamble, but before its missing-files reload and resume paths. The existing Start body is not moved or rewritten. A small Stop-request discriminator is the only other torrent-internal touch required for cancellation; the existing stop-after-check behavior remains unchanged.
+The first iteration edits four existing places: the `resolveFileNames` lambda in `SessionImpl::addTorrent_impl` and its continuation; the call and continuation in `TorrentImpl::handleSaveResumeData`; and one push call each in `TorrentFilesWatcher::doSetWatchedFolder()` and `TorrentFilesWatcher::removeWatchedFolder()`.
 
-When the Find Location group or **Find location when starting stopped torrents** is disabled, the delegation condition is false and the old Start body executes exactly as before. The new code in existing session callbacks is likewise guarded by an entry in the feature's location-assignment map, so torrents outside the feature retain their current lifecycle.
+The second iteration adds one conditional delegation to `TorrentImpl::start()`, after its existing error-clearing and operating-mode preamble but before its missing-files reload and resume paths, and a private `TorrentImpl::stop(bool)` overload: public `stop()` calls `stop(true)`, and the stop-after-check call in `TorrentImpl::handleTorrentChecked()` calls `stop(false)`. The existing Start and Stop bodies are not moved or rewritten.
+
+When the Find Location group or **Find location when starting stopped torrents** is disabled, the delegation condition is false and the old Start body executes exactly as before. The new code in existing session callbacks is guarded by an entry in `m_locationAssignments`, so torrents outside the feature retain their current lifecycle.
 
 ## Components
 
@@ -30,7 +32,7 @@ The component lives on the session I/O thread, constructed in `SessionImpl` and 
 
 ### Resolution at add
 
-`SessionImpl::addTorrent_impl` populates `lt::add_torrent_params`, then resolves the save path through a `resolveFileNames` lambda before the torrent reaches libtorrent. The lambda calls `findIncompleteFiles()` with the torrent's save path and download path, guarded by a local `needFindIncompleteFiles` flag that is set when the torrent has metadata and carries no finished status.
+`SessionImpl::addTorrent_impl` populates `lt::add_torrent_params`, then resolves the save path through a `resolveFileNames` lambda before the torrent reaches libtorrent. The lambda runs only when a local `needFindIncompleteFiles` flag is set, which happens when the torrent has metadata and carries no finished status, so a `.torrent` added in seed mode keeps its existing bypass.
 
 The continuation assigns `result.savePath` to `p.save_path` and applies `result.fileNames` to `p.renamed_files`.
 
@@ -40,25 +42,23 @@ Because this runs before libtorrent receives the torrent, a save path chosen her
 
 A torrent added from a magnet link has no file list at add time, so `needFindIncompleteFiles` is not set and the add-time search does not run.
 
-When metadata arrives, `TorrentImpl::handleSaveResumeData` runs under `MaintenanceJob::HandleMetadata`. It derives the file paths from the metadata, applies content layout adjustment through `Path::findRootFolder()`, `Path::stripRootFolder()` and `Path::addRootFolder()`, and calls `m_session->findIncompleteFiles(savePath(), downloadPath(), filePaths)`.
+When metadata arrives, `TorrentImpl::handleSaveResumeData` runs under `MaintenanceJob::HandleMetadata`. It derives the file paths from the metadata, applies content layout adjustment through `Path::findRootFolder()`, `Path::stripRootFolder()` and `Path::addRootFolder()`, and resolves the location.
 
 The continuation passes the result to `TorrentImpl::endReceivedMetadataHandling`, which assigns `p.save_path` from the discovered path, applies the renamed files, and calls `reload()`.
 
-Magnet links therefore reach discovery through this second call site, and both call sites require the candidate list.
+Both call sites reach `findExistingContent()` for a torrent in manual mode and `findIncompleteFiles()` for a torrent in automatic mode.
 
 ## First iteration
 
 ### Candidate roots
 
-`TorrentFilesWatcher::instance()->folders()` returns `QHash<Path, WatchedFolderOptions>`. Each `WatchedFolderOptions` holds an `addTorrentParams` whose `savePath` member is the save path for torrents found in that folder, and which is empty where the folder inherits the session default from `Session::savePath()`. A caller extracts those save paths and passes them down.
+`TorrentFilesWatcher::updateSessionWatchedFolderSavePaths()` takes the watched folder paths, sorts them by `Path::data`, and pushes each folder's configured `addTorrentParams.savePath`, empty entries included, through `Session::setWatchedFolderSavePaths()` whenever a watched folder is set, replaced or removed. The sorted order makes ties between watched folders resolve the same way on every run. `SessionImpl` holds the list in `m_watchedFolderSavePaths`, and composition resolves a relative entry against `savePath()`; an empty entry passes through and `candidateRoots()` gives it the session default.
 
-From each of those save paths the construction contributes three candidates: the root form, the path itself; the name form, the path joined with the torrent's name; and the source form, the path joined with the basename of the `.torrent` file. The torrent's name comes from `TorrentInfo::name()` where metadata is available, and the source file name is known to `AddTorrentManager` through the source string it tracks per info hash.
+From each search root the construction contributes three candidates: the root form, the root itself; the name form, the root joined with the torrent's name; and the source form, the root joined with the `.torrent` file's name with its extension removed. The torrent's name comes from `TorrentInfo::name()`, except that a single-file torrent without a root folder uses the file's stem, the folder qBittorrent itself nests such a file in under the Subfolder layout. The source file name comes from `TorrentDescriptor::source()` when it names a local `.torrent` file; a magnet URI, including one whose last parameter ends in `.torrent`, and a descriptor loaded from memory contribute none.
 
-The source form is ordered last of the three. It pays only where the directory on disk matches the `.torrent` filename and not the torrent's internal name, which describes a library organised by hand rather than one a client laid out. Its cost is small, since the counting pass abandons a root holding none of the content after a couple of `exists()` calls, and its position denies it any chance of outranking a better match.
+The source form is ordered last of the three. It pays only where the directory on disk matches the `.torrent` filename and not the torrent's internal name, which describes a library organised by hand rather than one a client laid out. Its cost is small, since the counting pass abandons a root holding none of the content after a couple of `exists()` calls.
 
-The torrent's own save path and download path lead the list. Those two are destinations as well as search locations; the roots derived from watched folders are search locations only. A search that matches nothing returns the destination, never a watched folder root that happened to be probed last.
-
-Roots are deduplicated, since watched folders commonly share a save path.
+`candidateRoots()` returns candidates alone. A form equal to the torrent's save path or download path is omitted, because `searchRoots()` scores those paths itself. Duplicates are collapsed by `Path` equality at their earliest position, so they fold case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`. A name form or source form whose name is empty, absolute, or whose first component is `.` or `..` is dropped by `isContainedName()`, so no candidate resolves outside its root.
 
 Construction is a free function declared beside `FileSearcher` in `src/base/bittorrent/filesearcher.h`:
 
@@ -66,55 +66,61 @@ Construction is a free function declared beside `FileSearcher` in `src/base/bitt
 PathList candidateRoots(const Path &savePath, const Path &downloadPath, const PathList &searchRoots, const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName);
 ```
 
-`searchRoots` is named for what it carries rather than where it came from, because the third iteration adds a second origin to it.
+`searchRoots` is named for what it carries rather than where it came from, because the third iteration adds further origins to it.
 
-Every input arrives as a parameter. The lookups producing them — `TorrentFilesWatcher::instance()->folders()`, `Session::savePath()`, and the settings gating them — belong to the `SessionImpl` sibling below, which composes `searchRoots` and passes it down. `SessionImpl::addTorrent_impl`, `TorrentImpl::handleSaveResumeData` and the on-demand caller the second iteration introduces all reach discovery through that sibling, so composition has one implementation rather than one per call site. An empty entry in `searchRoots` takes `defaultSavePath` in its place, and the returned list is ordered and deduplicated.
+Every input arrives as a parameter, so a test drives it with literals alone. `SessionImpl::findExistingContent()` composes `searchRoots` from `m_watchedFolderSavePaths` and passes `savePath()` as the default. With **Find location** or **Find location automatically** disabled, `findExistingContent()` returns `findIncompleteFiles()`'s result and composes nothing.
 
-Where discovery is disabled the sibling composes `searchRoots` empty, and `candidateRoots()` returns the torrent's save path and download path alone. Reading a preference inside the function would put a singleton behind it and cost the property that makes it testable.
-
-The third iteration places the discovery roots ahead of the watched folder save paths within `searchRoots`, and adds a parameter carrying the enumerated name-to-path map.
+The third iteration places the discovery roots ahead of the watched folder save paths within `searchRoots`, and adds a trailing list of optional enumeration maps aligned with the search roots.
 
 ### Multi-root search
 
-`findInDir()` returns the number of files found in place of a boolean, and gains a counting variant beside it that tests names without rewriting them. Both are private to `filesearcher.cpp`.
+`countInDir()`, new in the anonymous namespace beside the unchanged `findInDir()`, returns how many of a torrent's file names are present under a directory, directly or with `QB_EXT` appended. It never modifies the names, and it returns as soon as the running count plus the names remaining cannot exceed a supplied best count.
 
-`FileSearcher` gains a method taking an ordered list of roots together with the destination a miss falls back to. `search()` retains its signature and its behaviour, delegating to that method with a list built from its save path and download path, so the call site at `sessionimpl.cpp:3180` needs no change.
+`FileSearcher` gains:
 
-The destination is a parameter of the new method rather than a position in the list, which is what carries `forceAppendExt` to it. Roots that are only searched never receive the flag, so no incomplete-file name is invented anywhere the torrent will not be written.
+```c++
+void searchRoots(const PathList &originalFileNames, const Path &savePath, const Path &downloadPath, const PathList &candidates, bool forceAppendExt, QPromise<SearchRootsResult> &promise);
+```
+
+`search()` and the call to it inside `findIncompleteFiles()` are untouched.
+
+The torrent's own paths are parameters rather than positions in a list, and the destination is derived from them. Candidates are only searched and never receive `forceAppendExt`, so no incomplete-file name is invented anywhere the torrent will not be written.
 
 A root that cannot be read yields a count of zero and is passed over, since discovery must survive a discovery root on storage the user has disconnected.
 
-Matching is what `findInDir()` performs: a file is present when it exists under its declared name, or under that name with `QB_EXT` appended.
-
 ### Selection
 
-Scoring across many roots uses the count `findInDir()` returns, with the caller taking the highest count and the earliest root on a tie.
+`searchRoots()` scores the save path, then the download path when one is set, then each candidate, in that order. An entry that is empty or does not exist costs one existence test and is skipped; otherwise `countInDir()` counts it against the best count so far. The entry with the highest count wins, the earlier entry wins a tie, and scoring stops once an entry holds every file. The torrent's own paths therefore win a tie and lose to any candidate holding more.
 
-`findInDir()` rewrites the entries it is given, appending `QB_EXT` where the incomplete variant is the file present and, under `forceAppendExt`, where neither is. Scoring many roots with a function that mutates its input means scoring against names another root has already altered.
+`findInDir()` rewrites the entries it is given, appending `QB_EXT` where the incomplete variant is the file present and, under `forceAppendExt`, where neither is. Scoring many directories with a function that mutates its input would score against names another directory had already altered. `countInDir()` yields a score per directory without touching the names, and `findInDir()` then runs once, on a copy of the names, for the winner: at the save path with `forceAppendExt` applied only when the download path is empty, at the download path with `forceAppendExt`, and at a candidate without it. Where no directory holds any file, `findInDir()` runs as `search()` runs it, so a miss produces `search()`'s result.
 
-The counting variant resolves it. It yields a score per root without touching the names, and `findInDir()` then runs once, on the winner, to produce the names the result carries. The counting pass is also free to stop early, since a score it cannot bring above the leader decides nothing.
+`SearchRootsResult` carries the winning `savePath` and its `fileNames`, the `matchCount` that chose it, `searchedCandidates`, true when candidates were reached, and `foundAtOwnPath`, true when the save path or download path won.
 
-The adjusted `fileNames` list belongs to whichever root wins, so the search retains the names produced by the winning probe rather than the last one attempted.
+The `findExistingContent()` continuation records the outcome through `Logger::addMessage`. A candidate win records the torrent, the location, the watched folder save path whose exact candidate set contains that location, and the count. A search whose candidates were probed and matched nothing records the miss. A win at the torrent's own save path or download path records nothing, so an ordinary add logs as it does without the feature. One message per torrent keeps the log proportional to torrents processed.
 
-The search records its outcome through `Logger::addMessage`, naming the torrent, the winning root, the origin that root came from, and the count that chose it. A search matching nothing records that. One message per torrent keeps the log proportional to torrents processed.
+### Adoption
+
+In `addTorrent_impl`, a torrent in automatic mode resolves through `findIncompleteFiles()`, and a torrent in manual mode through `findExistingContent()`. When a manual-mode result is neither the torrent's save path nor its download path, the continuation assigns `loadTorrentParams.savePath` the discovered location and empties `loadTorrentParams.downloadPath`. `TorrentImpl` takes `m_savePath` from those parameters, and `adjustStorageLocation()` targets `savePath()` when the download path is empty, so the storage already where libtorrent placed it is not moved after the check, complete or not.
+
+In `handleSaveResumeData`, the same condition clears `m_downloadPath` and calls `setSavePath()` before `endReceivedMetadataHandling()`. With the download path empty and `hasMetadata()` still false, `setSavePath()` reaches `moveStorage()` with `MoveStorageContext::ChangeSavePath`, whose no-metadata branch assigns `m_savePath` with no storage job. `setDownloadPath({})` is not used there, because with an empty path and no metadata it records the previous save path as the download path.
 
 ### Settings
 
-Each setting is a cached value and getter/setter pair on `SessionImpl`, stored below a `FindLocation/` BitTorrent session key. The setter returns early when the value is unchanged. This follows the ownership of the existing Find Location implementation: the session consumes the settings and exposes them through the `Session` interface to desktop and WebUI callers.
+Each setting is a `CachedSettingValue<bool>` with a getter and setter pair on `SessionImpl`, stored below a `FindLocation/` BitTorrent session key and exposed through the `Session` interface to desktop and WebUI callers. The setter returns early when the value is unchanged.
 
-The group's checked state is a setting of its own, gating the feature ahead of the individual settings. The settings within it keep their stored values while the group is unchecked, so re-checking it restores the configuration the user last chose.
+The group's checked state is a setting of its own, `FindLocation/Enabled`, gating the feature ahead of the individual settings. The settings within it keep their stored values while the group is unchecked, so re-checking it restores the configuration the user last chose.
 
-**Find location automatically** gates discovery during add and metadata resolution. **Find location when starting stopped torrents** independently gates interception of an explicit Start for an eligible existing torrent. The three automatic-assignment settings arrive with the second iteration and gate recheck and post-check seeding or leeching when there is no explicit pending Start. They do not override explicit Start intent.
+**Find location automatically**, `FindLocation/OnAddEnabled`, gates discovery during add and metadata resolution. **Find location when starting stopped torrents** independently gates interception of an explicit Start for an eligible existing torrent. The three automatic-assignment settings arrive with the second iteration and gate recheck and post-check seeding or leeching when there is no explicit pending Start. They do not override explicit Start intent.
 
 ### WebAPI
 
-Keys are added to the map in `src/webui/api/appcontroller.cpp` serving `app/preferences` and `app/setPreferences`, with a patch-level bump of `API_VERSION` in `src/webui/webapplication.h` and an entry in `WebAPI_Changelog.md` naming them. Each iteration carries its own bump and entry for the keys it introduces.
+Keys are added to `src/webui/api/appcontroller.cpp` serving `app/preferences` and `app/setPreferences`. Each iteration adds one entry in `WebAPI_Changelog.md`, under the version heading at the top of the file, naming the keys it introduces and linking its pull request. `API_VERSION` and the version headings are set by the maintainers.
 
 Controls for the same keys go into `src/webui/www/private/views/preferences.html`. A preference reaching the WebAPI without a control there is settable by request and invisible in the interface, which is why the two are added together throughout this repository.
 
 ### Options dialog
 
-A checkable `QGroupBox` titled **Find location** in `src/gui/optionsdialog.ui`, placed among the download options and wired in `src/gui/optionsdialog.cpp`, holds one checkbox per setting. The `.ui` file is subject to the grid item ordering pre-commit hook, so the group and its contents are inserted at the correct grid position rather than appended.
+A checkable `QGroupBox` titled **Find location** in `src/gui/optionsdialog.ui`, placed in the Downloads page's `QVBoxLayout` after `checkRecursiveDownload` and before `groupSavingManagement`, and wired in `src/gui/optionsdialog.cpp`, holds one checkbox per setting.
 
 The first iteration introduces the group holding **Find location automatically**. **Find location when starting stopped torrents** and the three assignment checkboxes join it in the second, and the discovery root list in the third, at which point the group holds a list as well as checkboxes.
 
@@ -126,27 +132,27 @@ The Start-triggered, manual and batch modes act on torrents held by the session,
 
 This is why candidate root construction and selection are factored into shared functions in the first iteration.
 
-Reaching them from the GUI needs an addition to the `BitTorrent::Session` interface. `findIncompleteFiles()` is declared on `SessionImpl`, while `src/gui` holds `Session`, which the transfer list obtains through `Session::instance()`. Neither that method nor anything beneath it is reachable from there.
+Reaching them from the GUI needs additions to the `BitTorrent::Session` interface. `findIncompleteFiles()` and `findExistingContent()` are declared on `SessionImpl`, while `src/gui` holds `Session`, which the transfer list obtains through `Session::instance()`.
 
-A virtual on `Session` supplies it, backed by a sibling to `findIncompleteFiles()` on `SessionImpl`. It is a `void` operation reporting through a completion signal, in the manner of the signals `Session` declares, so batch mode receives each torrent's result as that torrent completes.
+`Session::findTorrentLocation()` is a `void` operation reporting through the `torrentLocationFound` signal, carrying one torrent's ID, location and whether content was found, so batch mode receives each torrent's result as that torrent completes. `Session::assignTorrentLocation()` assigns a chosen location. Both compose through `SessionImpl::searchExistingContent()`, which carries the enabled branch of `findExistingContent()` and is the one composition every call site reaches.
 
-The GUI work sits in `src/gui/transferlistwidget.cpp`. An action is constructed beside `actionSetTorrentPath`, added to the context menu next to it, and connected to a slot mirroring `setSelectedTorrentsLocation()`. A selection producing no match opens the same `QFileDialog` that action opens.
+The GUI work sits in `src/gui/transferlistwidget.cpp`. A **Find location** action is constructed beside `actionSetTorrentPath` and added directly after it while the selection holds metadata and the group is enabled. Each invocation registers its torrents in one operation map before issuing any search; an invocation made while an operation is active merges only unseen torrents into it. Each match is assigned as its outcome arrives. Once every outcome has arrived, one torrent without a match opens the **Choose save path** dialog that **Set location...** opens, and several open `UnmatchedTorrentsDialog`.
 
 The dialog listing unmatched torrents is a widget class and `.ui` file registered in `src/gui/CMakeLists.txt`.
 
 ### Minimal pending-Start state
 
-`SessionImpl` extends the location-assignment map already planned for manual assignment. It does not introduce a general lifecycle coordinator. An entry is keyed by `TorrentID` and contains only what the feature needs:
+`SessionImpl` holds the feature state in `QHash<TorrentID, LocationAssignmentState> m_locationAssignments`, shared by manual assignment and pending Start. An entry holds only what the feature needs:
 
-- the current Find Location phase;
-- the selected target path, once one exists;
-- optional pending Start intent and its `TorrentOperatingMode`;
-- a one-shot permission for an internal use of the existing Start path, marked terminal or metadata-only; and
-- an operation token used by asynchronous search continuations.
+- `location`, the selected target path, once one exists;
+- `phase`, one of `WaitingForMetadata`, `Searching`, `WaitingForMove` and `WaitingForCheck`;
+- `startMode`, the optional pending Start's `TorrentOperatingMode`;
+- `startPass`, a one-shot permission for an internal use of the existing Start path: `None`, `MetadataOnly`, `Recheck` or `Terminal`; and
+- `token`, used by asynchronous search continuations.
 
-Manual assignment and Start-triggered discovery share the existing waiting-for-move and waiting-for-check phases. A Start-triggered entry additionally uses waiting-for-metadata and searching. Under libtorrent 2, the existing `SessionImpl::handleTorrentInfoHashChanged()` re-keys a waiting entry if magnet metadata changes its ID.
+Manual assignment and Start-triggered discovery share the waiting-for-move and waiting-for-check phases. A Start-triggered entry additionally uses waiting-for-metadata and searching. Under libtorrent 2, `SessionImpl::handleTorrentInfoHashChanged()` re-keys a waiting entry if magnet metadata changes its ID.
 
-The operation token is local feature bookkeeping, not a new application identity or event system. A continuation captures the torrent ID and token, looks the entry up again on the main thread, and returns without action when the entry was cancelled, removed or replaced. No raw `TorrentImpl *` is retained across an asynchronous search.
+The token is local feature bookkeeping. A continuation captures the torrent ID and token, looks the entry up again on the main thread, and returns without action when the entry was cancelled, removed or replaced. No raw `TorrentImpl *` is retained across an asynchronous search.
 
 ### Minimal Start interception
 
@@ -157,36 +163,38 @@ if (m_session->interceptFindLocationStart(this, mode))
     return;
 ```
 
-The method returns `false` immediately when the master feature gate or **Find location when starting stopped torrents** is disabled, when the torrent is checking, or when it is not an eligible stopped manual-mode torrent. The checking exclusion lets every existing force-recheck path retain its internal use of `start()`. The remainder of `TorrentImpl::start()` is left where it is and executes unchanged. This position also provides the bounded workaround for the known force-recheck failure: a later user Start uses the existing preamble to clear the stale native error before Find Location searches and issues a new recheck, without briefly resuming payload transfer.
+`interceptFindLocationStart()` decides in this order. An entry holding a pass other than `None` has that pass consumed, the entry is erased when the pass was `Terminal`, and the call returns `false`; this is the only bypass. An entry already carrying a `startMode` takes the new mode and the call returns `true`, coalescing a repeated Start in every phase. Otherwise the call returns `false` when the master gate or **Find location when starting stopped torrents** is disabled, the torrent is not stopped, it is in automatic mode, or it is checking. An eligible torrent with a manual-assignment entry and no `startMode` has that mode attached and returns `true`. An eligible torrent without an entry gains one, is held by returning `true`, and either begins its search or, lacking metadata, waits for it. The remainder of `TorrentImpl::start()` is left where it is and executes unchanged. This position also provides the bounded workaround for the known force-recheck failure: a later user Start uses the existing preamble to clear the stale native error before Find Location searches and issues a new recheck, without briefly resuming payload transfer.
 
-An active entry coalesces another Start and updates the saved normal or forced mode without issuing duplicate work. To release a successful transaction, `SessionImpl` arms a terminal one-shot Start pass and calls the existing public `torrent->start(savedMode)`. The same conditional call consumes the pass, removes the completed entry, returns `false`, and the existing Start body continues. For metadata acquisition the pass is non-terminal: consuming it leaves the entry waiting for metadata. This avoids a new internal Start API, friendship, or movement of the current implementation.
+To release a successful transaction, `SessionImpl` arms `LocationStartPass::Terminal` and calls the existing public `torrent->start(savedMode)`. The conditional call consumes the pass, removes the completed entry, returns `false`, and the existing Start body continues.
 
-`TorrentImpl::forceRecheck()` also needs no rewrite. It sets the cached state to checking before its existing internal call to `start()`, so a checking torrent is excluded from Start-trigger eligibility. For the feature-issued recheck, the waiting-for-check entry is installed before `forceRecheck()` is called. The existing `StopCondition::FilesChecked` and check-completion path remain responsible for making the torrent stopped again.
+`TorrentImpl::forceRecheck()` needs no rewrite. `forceLocationAssignmentRecheck()` sets the entry to waiting-for-check and arms `LocationStartPass::Recheck` before calling `forceRecheck()`, whose internal `start()` consumes that pass. The explicit pass is required because coalescing runs before the checking test, so without it the internal call would be taken for a repeated explicit Start. The existing `StopCondition::FilesChecked` and check-completion path remain responsible for making the torrent stopped again.
 
-A metadata-less stopped torrent uses the same one-shot mechanism to enter the application's existing metadata-only flow, followed by `StopCondition::MetadataReceived`. Once the existing metadata pipeline calls `SessionImpl::handleTorrentMetadataReceived()`, the same entry begins its search. No new metadata notification or alternate magnet lifecycle is added.
+A metadata-less stopped torrent arms `LocationStartPass::MetadataOnly`, calls `torrent->start(mode)` to enter the application's existing metadata-only flow, and then sets `StopCondition::MetadataReceived`. Once the existing metadata pipeline calls `SessionImpl::handleTorrentMetadataReceived()`, the same entry begins its search. No new metadata notification or alternate magnet lifecycle is added.
 
 ### Existing lifecycle hooks
 
 The feature advances by adding guarded map lookups to hooks that already exist:
 
 1. `SessionImpl::handleTorrentMetadataReceived()` starts discovery only for an entry waiting for metadata. `handleTorrentInfoHashChanged()` preserves that entry across a magnet ID change.
-2. The existing `searchExistingContent()` continuation validates its ID and token. A miss arms a terminal one-shot Start pass. An own-path match skips assignment but still starts the mandatory recheck. A different-path match uses `setAutoTMMEnabled(false)` and `setSavePath()` exactly as manual location assignment already does.
-3. `SessionImpl::handleTorrentStorageMovingStateChanged()` already receives completion from the existing move queue. A waiting entry advances only after no move is pending and `actualStorageLocation()` equals its target. A failed move reaches the same hook with the current path, so the mismatch clears the feature entry without changing move-queue behavior.
-4. `SessionImpl::handleTorrentChecked()` releases Start only for an entry placed in waiting-for-check immediately before the feature called `forceRecheck()`. Every other check keeps its existing behavior.
-5. Existing search failure handling, `handleSaveResumeDataFailedAlert()`, `handleStorageMovedFailedAlert()` and `handleFileErrorAlert()` clear only a matching feature entry after their ordinary logging and torrent error handling. They discard pending Start and stop the torrent. Cached **Checking** never completes the transaction; only the existing successful checked callback does.
+2. The `searchExistingContent()` continuation validates its ID and token. A miss arms a terminal one-shot Start pass. An own-path match skips assignment but still starts the mandatory recheck. A different-path match uses `setAutoTMMEnabled(false)` and `setSavePath()` as manual location assignment does, then calls `setDownloadPath({})` when the torrent is incomplete, has a download path, and its actual storage location is not yet the match, so the matched location becomes the active storage location through the existing move.
+3. `SessionImpl::handleTorrentStorageMovingStateChanged()` already receives completion from the existing move queue. A waiting entry advances only after no move is pending and `actualStorageLocation()` equals its target. A failed move reaches the same hook with the current path, so the mismatch clears the feature entry without changing move-queue behaviour.
+4. `SessionImpl::handleTorrentChecked()` acts only for an entry placed in waiting-for-check immediately before the feature called `forceRecheck()`. With a pending Start, it releases Start. Without one, it starts the torrent in auto-managed mode under **Seed automatically** for complete content or **Leech automatically** for incomplete content, and otherwise leaves it stopped. Every other check keeps its existing behaviour.
+5. The `onFailed` continuation of the search, `handleSaveResumeDataFailedAlert()`, `handleStorageMovedFailedAlert()` and `handleFileErrorAlert()` clear only a matching feature entry after their ordinary logging and torrent error handling. They discard pending Start and stop the torrent. Cached **Checking** never completes the transaction; only the existing successful checked callback does.
 6. `removeTorrent()` and session destruction erase pending entries before late continuations can act.
 
-Stop cancellation needs one narrowly bounded distinction because a searching torrent is deliberately still reported as stopped, while successful force recheck also performs an internal stop. The public Stop request must clear a pending entry even when the normal stop body has nothing to change, but the existing stop-after-check call must not cancel immediately before `handleTorrentChecked()` releases it. Implement this as a private request-origin discriminator local to `TorrentImpl`; do not change the public `Torrent::stop()` signature or general stop semantics. The old stop body remains unchanged and is used in both cases.
+Stop cancellation needs one narrowly bounded distinction because a searching torrent is deliberately still reported as stopped, while successful force recheck also performs an internal stop. Public `TorrentImpl::stop()` calls the private `stop(true)`, which calls `SessionImpl::cancelFindLocationStart()` and then runs the unchanged stop body, so a Stop request clears a pending entry even when the stop body has nothing to change. `TorrentImpl::handleTorrentChecked()` calls `stop(false)`, so the stop-after-check call does not cancel an entry immediately before `SessionImpl::handleTorrentChecked()` releases it. The public `Torrent::stop()` signature is unchanged.
 
 ### Force-recheck failure boundary
 
 The feature works around the known defect only within its own operation. If its recheck produces an I/O error before `torrent_checked_alert`, the existing error-alert hook removes the waiting entry, discards pending Start, and calls the ordinary stop path to clear `StopCondition::FilesChecked`. A later explicit Start first executes the existing error-clearing preamble and can create a fresh Find Location transaction. The feature never accepts the cached **Checking** value as completion.
 
-This does not change `forceRecheck()`, libtorrent error recovery, or the behavior of a force recheck initiated outside Find Location. Repairing the underlying defect remains the separate post-feature task recorded in the workplan.
+This does not change `forceRecheck()`, libtorrent error recovery, or the behaviour of a force recheck initiated outside Find Location. Repairing the underlying defect remains the separate post-feature task recorded in the workplan.
 
 ### Assignment
 
-Assignment adds `forceRecheck()` to the `setAutoTMMEnabled(false)` and `setSavePath()` pair. A Start-triggered match always rechecks because successful verification is its release gate. For manual assignment without an explicit pending Start, **Recheck automatically** determines whether the assignment enters the waiting-for-check phase.
+Assignment adds `forceRecheck()` to the `setAutoTMMEnabled(false)` and `setSavePath()` pair. A Start-triggered match always rechecks because successful verification is its release gate.
+
+Manual assignment through `assignTorrentLocation()` follows **Set location...** semantics. An assignment to the location an entry already holds is coalesced and does nothing further; an assignment to a different location replaces the entry. The torrent is stopped before its entry is inserted. With **Recheck automatically** enabled, the assignment waits for a pending move, and rechecks only once the torrent's actual storage location equals the assigned location; an incomplete torrent with a download path keeps its storage there and receives no recheck.
 
 Starting the torrent waits on the check, so the decision is taken where the check reports rather than at the point of assignment. The existing `SessionImpl::handleTorrentChecked()` callback performs the guarded feature lookup. For an explicit pending Start, the saved normal or forced mode is honored regardless of **Seed automatically** and **Leech automatically**. Without pending Start, completeness at that moment is tested against those two settings. Entries are keyed by `TorrentID` and correlated by phase and operation token so a check triggered by other means is unaffected.
 
@@ -198,54 +206,58 @@ Concurrency is bounded by the session. `MaxActiveCheckingTorrents`, defaulting t
 
 ### Discovery root storage
 
-Discovery roots carry per-root options, so they persist as `TorrentFilesWatcher` persists watched folders: a JSON object per root, with the recursion flag a key within it, following `OPTION_RECURSIVE` in `torrentfileswatcher.cpp`. A flat path list with a separate flag would diverge from the pattern the application already has for a rooted option.
+`src/base/discoveryroots.h` and its implementation add `DiscoveryRootOptions`, carrying `recursive`; `DiscoveryRoot`, carrying `path` and its options; and the `DiscoveryRoots` singleton holding the ordered list. The list persists to `discovery_roots.json` as a JSON array of objects carrying `path` and `recursive`. `TorrentFilesWatcher` keys its JSON object by folder path, which `QJsonObject` holds in sorted order; the discovery root list is ordered by the user, so it is held as an array.
 
-Storage is a singleton on the same terms, so `Application` owns its lifetime, calling `initInstance()` where it calls `TorrentFilesWatcher::initInstance()` and `freeInstance()` where it frees that one. Its header and implementation are registered in `src/base/CMakeLists.txt`.
+`parseDiscoveryRoots()` converts the array into the list, dropping an entry that is not an object, whose path is empty or relative, or whose path repeats an earlier entry; `serializeDiscoveryRoots()` writes one object per root in order. Both read no singleton and write no log, so a `qbt_base` test covers them. `setRoots()` with a list equal to the stored one writes and emits nothing; otherwise it stores the list, writes the file and emits `rootsChanged()`. Loading follows `TorrentFilesWatcher::load()`: an absent file leaves the list empty silently, and a read error, parse error or document that is not an array logs a warning and leaves it empty.
+
+`Application` owns the singleton's lifetime, calling `DiscoveryRoots::initInstance()` before `BitTorrent::Session::initInstance()` and `DiscoveryRoots::freeInstance()` after `BitTorrent::Session::freeInstance()`, because `SessionImpl` can compose a search for any torrent it holds from construction to destruction. Its header and implementation are registered in `src/base/CMakeLists.txt`.
 
 ### Enumeration
 
-A root marked recursive is listed once, and the listing becomes a `QHash<QString, Path>` from subdirectory name to path. Candidate root construction takes that map and looks the torrent's name up in it, so a directory holding five hundred subdirectories costs one listing and a hash lookup per torrent rather than fifteen hundred candidate forms.
-
-The lookup replaces the name form, so an enumerated root contributes the root form and the source form, with the name-matched directory supplied by the map.
+`enumerateSubdirectories()` lists a root's immediate subdirectories once into `SubdirectoryMap`, a `QHash<QString, Path>` from subdirectory name to path. `candidateRoots()` takes a trailing `QList<std::optional<SubdirectoryMap>>` aligned with the search roots; a search root with a map contributes the root form, the mapped directory in the name form's position where the lookup finds one, and the source form. A directory holding five hundred subdirectories therefore costs one listing and a hash lookup per torrent rather than fifteen hundred candidate forms.
 
 Keys are folded to a single case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and the lookup folds the same way. Without that, a lookup would resolve strictly where `exists()` on the same platform would not, and the form it replaces would lose coverage. `Path` cannot carry the map's key: `operator==(Path, Path)` compares through `Path::CASE_SENSITIVITY` while `qHash(const Path &, std::size_t)` hashes `key.data()` unfolded, so equality and hashing disagree on Windows.
 
-The map is built for the operation that needs it and discarded when that operation ends. Persisting it across a session would spare the listing on every add, and is a candidate for a future revision; it carries invalidation against a directory the user can change underneath the application, which this iteration does not take on.
+Enumeration is filesystem I/O and runs on the session I/O thread with the probing. `SessionImpl::SearchOperation` holds one operation's roots with their origins, the composed `searchRoots`, the default save path and the maps. `composeSearchOperation()` builds it on the main thread, placing the pointed root first, then the discovery roots in configured order, then the watched folder save paths. `enumerateSearchOperation()` queues one functor onto the I/O thread that fills the maps for the pointed root and every recursive discovery root, before any search of that operation is queued; each search computes its candidates on the I/O thread once the maps exist. Every torrent of a `findTorrentLocations()` call shares one operation, and an automatic addition reuses an add operation still in flight whose composed roots and default save path are unchanged. The operation and its maps are released when the last continuation holding them ends. An enumerated listing retained across a session is a candidate for a future revision; it carries invalidation against a directory the user can change underneath the application.
 
-Enumeration is filesystem I/O and runs on the session I/O thread with the probing.
+### Pointed roots and batch operations
 
-### Pointed roots
+`Session::findTorrentLocations(ids, pointedRoot)` runs one operation over a list of torrents with an optional pointed root, reporting each torrent's result through `torrentLocationFound` as its own search completes. `findTorrentLocation()` keeps its declaration and runs as a one-torrent batch. The transfer list submits each invocation's newly registered torrents through one `findTorrentLocations()` call.
 
-The dialog listing torrents that matched nothing gains an action taking a directory from the user and running discovery again for those torrents, with that directory as an enumerated root ahead of every other. Torrents that match are assigned and leave the list.
+`UnmatchedTorrentsDialog` gains **Search folder...**, taking one directory from the user and running one `findTorrentLocations()` operation over the listed torrents with it as the pointed root. Torrents that match are assigned and leave the list, and the action stays available while the list holds entries, so a library spread across several disks is covered by invoking it once per disk. The pointed root is written nowhere.
 
-The action stays available while the list holds entries, so a library spread across several disks is covered by invoking it once per disk. A single directory per invocation keeps `QFileDialog` in its directory mode, which selects one at a time, and keeps a set-building widget out of the dialog.
+The continuation names the exact root whose candidate set contains the winning location, rebuilding each root's candidates in order and taking the first set that contains it, and labels it as a pointed root, a discovery root or a watched folder save path by its origin.
 
 ### Options dialog list
 
-The discovery root list is a list backed by a model within the **Find location** group, with a per-root dialog carrying the recursion flag. `watchedfolderoptionsdialog.h`, its `.cpp` and its `.ui` are the model to follow, down to the `QCheckBox` labelled for recursive mode. The new widget class and `.ui` file are registered in `src/gui/CMakeLists.txt`.
+The discovery root list sits within the **Find location** group after the assignment checkboxes. `DiscoveryRootsModel`, a `QAbstractListModel` following `WatchedFoldersModel`, holds edits until `apply()` writes the list through `DiscoveryRoots::setRoots()` when the page is applied, and reloads on `rootsChanged()`. `DiscoveryRootOptionsDialog`, following `WatchedFolderOptionsDialog`, carries the **Recursive mode** checkbox for one root's options. The model's header and implementation, and the dialog's header, implementation and `.ui` file, are registered in `src/gui/CMakeLists.txt`.
+
+### Web interface
+
+`app/preferences` returns `find_location_discovery_roots` as an array of objects carrying `path` and `recursive`, writing each path with `Path::toString()` as `scan_dirs` writes each watched folder, while `discovery_roots.json` holds the `Path::data()` form. `app/setPreferences` receives the array through `parseDiscoveryRoots()`. The web interface builds each table row with DOM elements, writes the path through the input's `value` property, and reads the rows back in order.
 
 ## Threading and performance
 
 Probing runs on the session I/O thread, inherited from where `FileSearcher` is constructed. Start interception only creates or coalesces transaction state and dispatches work; it does not wait for probing, movement or checking. Future continuations return to the `SessionImpl` context, and libtorrent lifecycle alerts already arrive through the session. No filesystem search or synchronous wait is added to the GUI thread, so Stop and other UI work remain responsive while discovery is active.
 
-Cost scales as the number of candidate roots multiplied by the number of files in the torrent, in `exists()` calls, and multiplies across every torrent of a migration. No hashing occurs during probing. Add-time discovery relies on the add lifecycle's check; a Start-triggered match and a rechecked assignment each run one explicit hash check at the winning location. Issue [#17111](https://github.com/qbittorrent/qBittorrent/issues/17111) records the cost of hashing at this point in the lifecycle.
+Cost scales as the directories scored — the torrent's own save path and download path plus the candidates — multiplied by the number of files in the torrent, in `exists()` calls, and multiplies across every torrent of a migration. The winning directory is probed once more to produce its file names. No hashing occurs during probing. Add-time discovery relies on the add lifecycle's check; a Start-triggered match and a rechecked assignment each run one explicit hash check at the winning location. Issue [#17111](https://github.com/qbittorrent/qBittorrent/issues/17111) records the cost of hashing at this point in the lifecycle.
 
-The product is bounded on the probe. A root holding none of a torrent's content is identified by its first few absent files, so the counting pass abandons a root once it cannot overtake the leading score. Every root is examined.
+The product is bounded on the probe. A directory holding none of a torrent's content is identified by its first few absent files, so the counting pass abandons a directory once it cannot overtake the leading score, and scoring stops once a directory holds every file.
 
 An enumerated root inverts the cost. One listing serves every torrent of an operation, and each torrent costs a hash lookup against the resulting map, so a root holding many subdirectories is cheaper per torrent than a root holding few.
 
 ## Testing
 
-`candidateRoots()` takes every input as a parameter, so a test builds a `PathList` of search roots and asserts on the ordered result with no session, watcher or filesystem involved. Selection is a pure function of probe counts, and the name lookup against an enumerated map is a pure function of that map; both are exercised the same way.
+`candidateRoots()` takes every input as a parameter, so `testbittorrentcandidateroots` builds a `PathList` of search roots and asserts on the ordered result with no session, watcher or filesystem involved; the name lookup against an enumerated map is exercised the same way. `testdiscoveryroots` covers the discovery root JSON conversion without a filesystem.
 
-Each test file links `Qt::Test` and `qbt_base`. Probing and enumeration are exercised against directory fixtures under `test/testdata/`. `SessionImpl` is not made constructible through a new test-only abstraction for this feature; doing so would exceed the submission's scope.
+Each test file links `Qt::Test` and `qbt_base`. `testbittorrentfilesearcher` pins `search()` before any change; `testbittorrentfilesearchermultiroot` covers probing and selection in `searchRoots()`; and `testbittorrentsubdirectories` covers enumeration, each against directory fixtures under `test/testdata/filesearcher`. `SessionImpl` is not made constructible through a new test-only abstraction for this feature; doing so would exceed the submission's scope.
 
-Epic 2 integration scenarios independently cover the TX requirements at the public behavior boundary: disabled and ineligible fall-through, normal and forced Start, metadata-only acquisition, own-path and moved-path matches, miss, repeated Start, Stop, removal, shutdown, late completion, unrelated check completion, and each failure path. They verify that no payload file is created, allocated, truncated or written before a miss or successful recheck, that no peer payload connection begins while held, that the force-recheck workaround clears only feature-owned state, and that the GUI remains responsive.
-
-The test plan is set out step by step in [the dependency map](find-location_dependency_map.md).
+The resolution call sites and every GUI surface are verified by the manual cases in the workplan. Seventeen Epic 2 integration scenarios independently cover the TX requirements at the public behaviour boundary: disabled and ineligible fall-through, normal and forced Start, metadata-only acquisition, own-path and moved-path matches, miss, repeated Start, Stop, removal, shutdown, late completion, unrelated check completion, and each failure path. They verify that no payload file is created, allocated, truncated or written before a miss or successful recheck, that no peer payload connection begins while held, that the force-recheck workaround clears only feature-owned state, and that the GUI remains responsive. Eight Epic 3 integration scenarios cover batch enumeration, overlapping origins, persistence, absent and malformed files, unchanged writes, path forms, the web interface and automatic addition bursts.
 
 ## Risks
 
-Pull request [#23578](https://github.com/qbittorrent/qBittorrent/pull/23578) reworks how `actualSavePath` is derived in `addTorrent_impl`, the same function that hosts `resolveFileNames`. The additive shape keeps the two apart: discovery adds methods beside the ones that function calls, so the two changes share no declaration. The derivation of the torrent's own save path is untouched by discovery.
+Pull request [#23578](https://github.com/qbittorrent/qBittorrent/pull/23578) reworks how `actualSavePath` is derived in `addTorrent_impl`, the same function that hosts `resolveFileNames`. The first iteration edits the `resolveFileNames` lambda and its continuation in that function, so the two changes overlap in its body and one rebases onto the other. The derivation of the torrent's own save path is untouched by discovery.
 
-The review boundary is intentionally narrow. This iteration does not introduce a generic torrent-operation state machine, change public Start or Stop signatures, replace the move queue, alter metadata handling, modify `forceRecheck()`, or repair its general failure behavior. It adds feature state in `SessionImpl`, one conditional Start delegation, the minimum Stop-origin distinction required for cancellation, and guarded branches in existing callbacks. Those branches are unreachable when no Find Location entry exists.
+`searchRoots()` probes the winning directory twice, once through `countInDir()` and once through the unchanged `findInDir()`, so `findInDir()` stays untouched. The first iteration's pull request offers a single pass that records the winner's names while counting as an alternative for the maintainers to choose.
+
+The review boundary is intentionally narrow. The feature changes no public Start or Stop signature, move queue, metadata handling or `forceRecheck()` implementation, and repairs no general force-recheck behaviour. It adds feature state in `SessionImpl`, one conditional Start delegation, the private `stop(bool)` overload required for cancellation, and guarded branches in existing callbacks. Those branches are unreachable when no Find Location entry exists.

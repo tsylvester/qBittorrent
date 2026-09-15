@@ -4,7 +4,7 @@
 
 qBittorrent adopts content that is already on disk when a torrent is added or when an existing stopped torrent is started, instead of downloading it again. A user moving a library from another client, or rebuilding one after losing configuration, recovers it without repairing each torrent by hand.
 
-Behaviour is set out in [the feature specification](find-location_feature_spec.md), implementation in [the technical approach](find-location_technical_approach.md), qualities in [the non-functional requirements](find-location_nfr.md), and build order in [the dependency map](find-location_dependency_map.md).
+Behaviour is set out in [the feature specification](find-location_feature_spec.md), implementation in [the technical approach](find-location_technical_approach.md), qualities in [the non-functional requirements](find-location_nfr.md), build order in [the dependency map](find-location_dependency_map.md), and files, tests and verification in [the workplan](find-location_workplan.md).
 
 ## Problem
 
@@ -52,6 +52,8 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 * A migration of a library whose content sits under a path the application searches, whether configured as a save path, configured as a discovery root, or pointed at, completes with no content bytes transferred for torrents that are complete.
 * Starting an eligible stopped torrent whose complete content sits under a path the application searches creates, allocates and writes no payload file at its former destination, and transfers no content bytes from peers.
 * Torrents partly downloaded before the migration resume at their existing progress rather than at zero.
+* A torrent whose configured location holds part of its content, such as one started against the wrong folder, is placed where a searched location holds more of its files.
+* Content adopted when a torrent is added or its metadata arrives stays where it was found after the torrent's check, and is not moved into the configured incomplete-download folder.
 * Starting a stopped torrent whose partial content is found elsewhere verifies that content before requesting only the pieces found to be missing.
 * A failed search operation, location assignment or recheck leaves the torrent stopped, clears the pending Start operation and permits a later retry without restarting qBittorrent.
 * The number of torrents a user must repair by hand after a migration falls to those whose content the user cannot point the application at.
@@ -61,9 +63,11 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 
 ### Must
 
-* Discovery runs when a torrent is added and selects a save path from the candidate roots.
-* Discovery runs for magnet links when metadata arrives, before content pieces are requested.
-* While the feature and **Find location when starting stopped torrents** are enabled, a Start request for an eligible stopped torrent runs discovery before the ordinary Start workflow. A torrent whose placement is owned by automatic torrent management is not eligible.
+* Discovery runs when a torrent in manual location mode is added and selects its save path by comparing the torrent's own save path and download path with the searched locations. A torrent whose placement is owned by automatic torrent management resolves as it does without the feature, and a torrent added as already complete, skipping its hash check, keeps that existing path.
+* Discovery runs for a magnet link in manual location mode when metadata arrives, before content pieces are requested.
+* When content exists in more than one place, the location holding the most of the torrent's files is selected, and the torrent's own save path or download path wins a tie.
+* A torrent adopted at a searched location when it is added or its metadata arrives takes that location as its save path with no separate incomplete-download location, so its content is not moved after its check.
+* While the feature and **Find location when starting stopped torrents** are enabled, a Start request for an eligible stopped torrent runs discovery before the ordinary Start workflow. A torrent whose placement is owned by automatic torrent management, or a torrent that is checking, is not eligible.
 * The Start request is transactional. The torrent is held stopped while discovery runs, and the ordinary workflow shall not create, allocate or write payload files, request content pieces, or otherwise begin downloading before the transaction permits it.
 * A torrent without metadata may obtain the metadata needed for discovery, but shall remain held against payload download after metadata arrives and until the transaction reaches its start decision.
 * When discovery selects the torrent's current save path or download path, the transaction makes no location assignment but rechecks the matched content before honoring the pending Start.
@@ -80,17 +84,18 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 * A torrent matching nothing is placed at its configured destination and behaves as it does without the feature.
 * The feature is disabled in one action, returning torrent add and Start to their prior behaviour.
 * Every setting is reachable from each interface the application presents, so a user running the headless daemon configures the feature as fully as a user running the desktop application.
-* Discovery records what it chose and records a torrent that matched nothing. A Start transaction records whether it continued after a match, continued after a miss, was cancelled, or failed, so unexpected placement and activity can be accounted for after the fact.
+* Discovery records a location found outside the torrent's own paths, naming the folder it came from and how many files were found, and records a torrent whose searched locations held none of its files. It records nothing when the torrent's own save path or download path is selected, so an ordinary add logs as it does without the feature. A Start transaction records whether it continued after a match, continued after a miss, was cancelled, or failed, so unexpected placement and activity can be accounted for after the fact.
 
 ### Should
 
 * A **Find location** action runs discovery on demand for torrents already in the session, singly and over a selection.
 * An assignment made without a pending Start rechecks the torrent while **Recheck automatically** is enabled and returns it to service as the automatic seeding and downloading preferences allow.
+* An assignment made from the **Find location** action follows **Set location...**: an incomplete torrent with a separate download path keeps its content in that download path.
 * Torrents matching nothing in a batch are listed, and the user walks them or abandons the operation.
 * Seeding and downloading are separately controllable, so a user on constrained upstream recovers a library without joining swarms as a seed.
 * Torrents started after assignment are auto-managed, so the session's queueing limits govern how many of a recovered library run at once.
 * Directories the user configures are searched alongside the watched folder save paths, ahead of them, and without requiring a watched folder to exist.
-* A directory searched recursively is listed once and matched by name, so pointing at a library costs one listing rather than one probe per subdirectory.
+* A directory searched recursively is listed once per operation and matched by name, the listing shared by every torrent in a selection, in a **Search folder...** action, or in a burst of automatic additions, so pointing at a library costs one listing rather than one probe per subdirectory.
 * The list of torrents that matched nothing accepts a directory to search, resolving them without leaving the list, and accepts another while entries remain, so a library across several disks is covered a disk at a time.
 
 ### Could
@@ -123,7 +128,8 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 ## Risks
 
 * A user whose content sits outside every path qBittorrent knows sees no benefit until they configure a discovery root or point at a directory. The first two iterations carry that limitation; the third removes it.
-* Enabled by default, the feature changes placement behaviour on upgrade. The single disabling action is the mitigation, and the discovery root list starts empty so an upgrade adds no search locations of its own.
+* Enabled by default, the feature changes placement behaviour on upgrade: torrents adopted at a searched location take it as their save path and carry no separate incomplete-download location. The single disabling action is the mitigation, and the discovery root list starts empty so an upgrade adds no search locations of its own.
+* The most complete copy wins, so a torrent can be placed away from a partial copy at its configured location, which changes placement for a user holding stale or duplicate partial copies. The single disabling action is the mitigation, and the log names where the content was found.
 * Intercepting Start adds search and, on a match elsewhere, recheck latency before the torrent can transfer. Both run asynchronously, and the safety guarantee takes priority over an immediate start.
 * Storage can disappear or become unreadable after it is found. A transaction therefore treats assignment, movement and checking as fallible and fails stopped rather than falling through to download.
 * A batch recheck across a large library is disk-intensive for its duration, bounded by the session's checking limit rather than by the feature.
@@ -131,6 +137,6 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 
 ## Release
 
-The work ships as three submissions. The first delivers discovery at add and at metadata received, with its setting and WebAPI key, and serves the GUI, the headless daemon and the WebUI alike. The second delivers Start-triggered discovery for eligible stopped torrents, the manual and batch modes, transactional assignment and recheck, and their settings. The third delivers discovery roots, enumeration and the pointed root, removing the requirement that content sit under a path the application already knows.
+The work ships as three submissions. The first delivers discovery at add and at metadata received, with its two settings, the feature group and **Find location automatically**, their WebAPI keys and their controls, and serves the GUI, the headless daemon and the WebUI alike. The second delivers Start-triggered discovery for eligible stopped torrents, the manual and batch modes, transactional assignment and recheck, and their settings, and closes issue [#8261](https://github.com/qbittorrent/qBittorrent/issues/8261). The third delivers discovery roots, enumeration and the pointed root, removing the requirement that content sit under a path the application already knows.
 
 Each submission stands alone and depends only on those before it. The third carries the largest GUI surface, a list with a per-root dialog, which is why it is separated rather than folded into the first.
