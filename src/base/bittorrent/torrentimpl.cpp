@@ -1,5 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
+ * Copyright (C) 2026 Tim Sylvester <t.j.sylvester@gmail.com>
  * Copyright (C) 2015-2026  Vladimir Golovnev <glassez@yandex.ru>
  * Copyright (C) 2006  Christophe Dumez <chris@qbittorrent.org>
  *
@@ -2013,6 +2014,14 @@ void TorrentImpl::reload()
 
 void TorrentImpl::stop()
 {
+    stop(true);
+}
+
+void TorrentImpl::stop(const bool cancelPendingFindLocationStart)
+{
+    if (cancelPendingFindLocationStart)
+        m_session->cancelFindLocationStart(this);
+
     if (!m_isStopped)
     {
         m_stopCondition = StopCondition::None;
@@ -2039,6 +2048,9 @@ void TorrentImpl::start(const TorrentOperatingMode mode)
     }
 
     m_operatingMode = mode;
+
+    if (m_session->interceptFindLocationStart(this, mode))
+        return;
 
     if (m_hasMissingFiles)
     {
@@ -2156,7 +2168,7 @@ void TorrentImpl::handleTorrentChecked()
     }
 
     if (stopCondition() == StopCondition::FilesChecked)
-        stop();
+        stop(false);
 
     m_statusUpdatedTriggers.enqueue([this]()
     {

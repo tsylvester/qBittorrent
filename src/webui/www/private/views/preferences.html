@@ -265,6 +265,22 @@
             <input type="checkbox" id="findLocationOnAddCheckbox" title="QBT_TR(When a torrent is added in Manual mode, or its metadata is received, look for its files in its save path, its download path and the save paths of the watched folders, and use the location holding the most of them.)QBT_TR[CONTEXT=OptionsDialog]">
             <label for="findLocationOnAddCheckbox">QBT_TR(Find location automatically)QBT_TR[CONTEXT=OptionsDialog]</label>
         </div>
+        <div class="formRow">
+            <input type="checkbox" id="findLocationOnStartCheckbox" title="QBT_TR(Search for existing content before starting a stopped torrent.)QBT_TR[CONTEXT=OptionsDialog]">
+            <label for="findLocationOnStartCheckbox">QBT_TR(Find location when starting stopped torrents)QBT_TR[CONTEXT=OptionsDialog]</label>
+        </div>
+        <div class="formRow">
+            <input type="checkbox" id="findLocationRecheckCheckbox" title="QBT_TR(When a location is assigned by Find location, recheck the torrent's files there.)QBT_TR[CONTEXT=OptionsDialog]" onclick="qBittorrent.Preferences.updateFindLocationEnabled();">
+            <label for="findLocationRecheckCheckbox">QBT_TR(Recheck automatically)QBT_TR[CONTEXT=OptionsDialog]</label>
+        </div>
+        <div class="formRow">
+            <input type="checkbox" id="findLocationSeedCheckbox" title="QBT_TR(When that recheck finds the torrent's content complete, start the torrent.)QBT_TR[CONTEXT=OptionsDialog]">
+            <label for="findLocationSeedCheckbox">QBT_TR(Seed automatically)QBT_TR[CONTEXT=OptionsDialog]</label>
+        </div>
+        <div class="formRow">
+            <input type="checkbox" id="findLocationLeechCheckbox" title="QBT_TR(When that recheck finds the torrent's content incomplete, start the torrent.)QBT_TR[CONTEXT=OptionsDialog]">
+            <label for="findLocationLeechCheckbox">QBT_TR(Leech automatically)QBT_TR[CONTEXT=OptionsDialog]</label>
+        </div>
     </fieldset>
 
     <fieldset class="settings">
@@ -2105,7 +2121,13 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
         };
 
         const updateFindLocationEnabled = () => {
-            document.getElementById("findLocationOnAddCheckbox").disabled = !document.getElementById("findLocationCheckbox").checked;
+            const groupEnabled = document.getElementById("findLocationCheckbox").checked;
+            const recheckEnabled = document.getElementById("findLocationRecheckCheckbox").checked;
+            document.getElementById("findLocationOnAddCheckbox").disabled = !groupEnabled;
+            document.getElementById("findLocationOnStartCheckbox").disabled = !groupEnabled;
+            document.getElementById("findLocationRecheckCheckbox").disabled = !groupEnabled;
+            document.getElementById("findLocationSeedCheckbox").disabled = !(groupEnabled && recheckEnabled);
+            document.getElementById("findLocationLeechCheckbox").disabled = !(groupEnabled && recheckEnabled);
         };
 
         const updateTorrentBackupControls = () => {
@@ -2528,6 +2550,10 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                     document.getElementById("unwantedfolder_checkbox").checked = pref.use_unwanted_folder;
                     document.getElementById("findLocationCheckbox").checked = pref.find_location_enabled;
                     document.getElementById("findLocationOnAddCheckbox").checked = pref.find_location_on_add_enabled;
+                    document.getElementById("findLocationOnStartCheckbox").checked = pref.find_location_on_start_enabled;
+                    document.getElementById("findLocationRecheckCheckbox").checked = pref.find_location_recheck_enabled;
+                    document.getElementById("findLocationSeedCheckbox").checked = pref.find_location_seed_enabled;
+                    document.getElementById("findLocationLeechCheckbox").checked = pref.find_location_leech_enabled;
                     updateFindLocationEnabled();
 
                     // Saving Management
@@ -2955,6 +2981,10 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
             settings["use_unwanted_folder"] = document.getElementById("unwantedfolder_checkbox").checked;
             settings["find_location_enabled"] = document.getElementById("findLocationCheckbox").checked;
             settings["find_location_on_add_enabled"] = document.getElementById("findLocationOnAddCheckbox").checked;
+            settings["find_location_on_start_enabled"] = document.getElementById("findLocationOnStartCheckbox").checked;
+            settings["find_location_recheck_enabled"] = document.getElementById("findLocationRecheckCheckbox").checked;
+            settings["find_location_seed_enabled"] = document.getElementById("findLocationSeedCheckbox").checked;
+            settings["find_location_leech_enabled"] = document.getElementById("findLocationLeechCheckbox").checked;
 
             // Saving Management
             settings["auto_tmm_enabled"] = (document.getElementById("default_tmm_combobox").value === "true");

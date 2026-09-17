@@ -1,5 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
+ * Copyright (C) 2026 Tim Sylvester <t.j.sylvester@gmail.com>
  * Copyright (C) 2015-2026  Vladimir Golovnev <glassez@yandex.ru>
  * Copyright (C) 2006  Christophe Dumez <chris@qbittorrent.org>
  *
@@ -233,6 +234,14 @@ namespace BitTorrent
         virtual void setFindLocationEnabled(bool enabled) = 0;
         virtual bool isFindLocationOnAddEnabled() const = 0;
         virtual void setFindLocationOnAddEnabled(bool enabled) = 0;
+        virtual bool isFindLocationOnStartEnabled() const = 0;
+        virtual void setFindLocationOnStartEnabled(bool enabled) = 0;
+        virtual bool isFindLocationRecheckEnabled() const = 0;
+        virtual void setFindLocationRecheckEnabled(bool enabled) = 0;
+        virtual bool isFindLocationSeedEnabled() const = 0;
+        virtual void setFindLocationSeedEnabled(bool enabled) = 0;
+        virtual bool isFindLocationLeechEnabled() const = 0;
+        virtual void setFindLocationLeechEnabled(bool enabled) = 0;
         virtual int refreshInterval() const = 0;
         virtual void setRefreshInterval(int value) = 0;
         virtual bool isPreallocationEnabled() const = 0;
@@ -498,6 +507,9 @@ namespace BitTorrent
         virtual void topTorrentsQueuePos(const QList<TorrentID> &ids) = 0;
         virtual void bottomTorrentsQueuePos(const QList<TorrentID> &ids) = 0;
 
+        virtual void findTorrentLocation(const TorrentID &id) = 0;
+        virtual void assignTorrentLocation(const TorrentID &id, const Path &location) = 0;
+
         virtual QString lastExternalIPv4Address() const = 0;
         virtual QString lastExternalIPv6Address() const = 0;
 
@@ -530,6 +542,7 @@ namespace BitTorrent
         void torrentCategoryChanged(Torrent *torrent, const QString &oldCategory);
         void torrentFinished(Torrent *torrent);
         void torrentFinishedChecking(Torrent *torrent);
+        void torrentLocationFound(const TorrentID &id, const Path &location, bool found);
         void torrentMetadataReceived(Torrent *torrent);
         void torrentStopped(Torrent *torrent);
         void torrentStarted(Torrent *torrent);
