@@ -1298,6 +1298,46 @@
                  </property>
                 </widget>
                </item>
+               <item>
+                <widget class="QCheckBox" name="checkFindLocationOnStart">
+                 <property name="text">
+                  <string>Find location when starting stopped torrents</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>Search for existing content before starting a stopped torrent.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="checkFindLocationRecheck">
+                 <property name="text">
+                  <string>Recheck automatically</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>When a location is assigned by Find location, recheck the torrent's files there.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="checkFindLocationSeed">
+                 <property name="text">
+                  <string>Seed automatically</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>When that recheck finds the torrent's content complete, start the torrent.</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="checkFindLocationLeech">
+                 <property name="text">
+                  <string>Leech automatically</string>
+                 </property>
+                 <property name="toolTip">
+                  <string>When that recheck finds the torrent's content incomplete, start the torrent.</string>
+                 </property>
+                </widget>
+               </item>
               </layout>
              </widget>
             </item>
