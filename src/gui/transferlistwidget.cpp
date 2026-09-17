@@ -388,8 +388,8 @@ void TransferListWidget::findSelectedTorrentsLocation()
         submitted.append(id);
     }
 
-    for (const BitTorrent::TorrentID &id : submitted)
-        BitTorrent::Session::instance()->findTorrentLocation(id);
+    if (!submitted.isEmpty())
+        BitTorrent::Session::instance()->findTorrentLocations(submitted);
 }
 
 void TransferListWidget::handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, const bool found)

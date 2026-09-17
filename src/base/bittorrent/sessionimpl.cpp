@@ -85,6 +85,7 @@
 #include <QUuid>
 
 #include "base/algorithm.h"
+#include "base/discoveryroots.h"
 #include "base/freediskspacechecker.h"
 #include "base/global.h"
 #include "base/keyvaluedatastorage.h"
@@ -2878,18 +2879,33 @@ void SessionImpl::bottomTorrentsQueuePos(const QList<TorrentID> &ids)
 
 void SessionImpl::findTorrentLocation(const TorrentID &id)
 {
-    TorrentImpl *const torrent = m_torrents.value(id);
-    if (!torrent || !torrent->hasMetadata())
-    {
-        emit torrentLocationFound(id, {}, false);
-        return;
-    }
+    findTorrentLocations({id});
+}
 
-    searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {})
-            .then(this, [this, id](const SearchRootsResult &result)
+void SessionImpl::findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot)
+{
+    QList<TorrentImpl *> validTorrents;
+    for (const TorrentID &id : ids)
     {
-        emit torrentLocationFound(id, result.savePath, ((result.matchCount > 0) || result.foundAtOwnPath));
-    });
+        TorrentImpl *const torrent = m_torrents.value(id);
+        if (!torrent || !torrent->hasMetadata())
+            emit torrentLocationFound(id, {}, false);
+        else
+            validTorrents.append(torrent);
+    }
+    if (validTorrents.isEmpty())
+        return;
+
+    const std::shared_ptr<const SearchOperation> operation = createSearchOperation(pointedRoot);
+    for (const TorrentImpl *torrent : asConst(validTorrents))
+    {
+        const TorrentID id = torrent->id();
+        searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {}, operation)
+                .then(this, [this, id](const SearchRootsResult &result)
+        {
+            emit torrentLocationFound(id, result.savePath, ((result.matchCount > 0) || result.foundAtOwnPath));
+        });
+    }
 }
 
 void SessionImpl::assignTorrentLocation(const TorrentID &id, const Path &location)
@@ -2950,7 +2966,7 @@ bool SessionImpl::isTorrentStorageMoving(const TorrentImpl *torrent) const
 void SessionImpl::searchStartedTorrentLocation(TorrentImpl *torrent, const quint64 token)
 {
     const TorrentID id = torrent->id();
-    searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {})
+    searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {}, createSearchOperation({}))
             .then(this, [this, id, token](const SearchRootsResult &result)
     {
         TorrentImpl *const currentTorrent = m_torrents.value(id);
@@ -3525,32 +3541,103 @@ QFuture<FileSearchResult> SessionImpl::findIncompleteFiles(const Path &savePath,
     return future;
 }
 
+struct SessionImpl::SearchOperation
+{
+    enum class Origin { Pointed, Discovery, WatchedFolder };
+
+    struct Root
+    {
+        Path path;
+        Origin origin;
+        bool enumerated;
+
+        bool operator==(const Root &) const = default;
+    };
+
+    QList<Root> roots;
+    PathList searchRoots;
+    Path defaultSavePath;
+    QList<std::optional<SubdirectoryMap>> subdirectoryMaps;
+};
+
 QFuture<FileSearchResult> SessionImpl::findExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName)
 {
     if (!isFindLocationEnabled() || !isFindLocationOnAddEnabled())
         return findIncompleteFiles(torrentSavePath, torrentDownloadPath, filePaths);
 
-    return searchExistingContent(torrentSavePath, torrentDownloadPath, filePaths, torrentName, sourceFileName).then(this, [](const SearchRootsResult &result)
+    std::shared_ptr<SearchOperation> operation = composeSearchOperation({});
+    if (const std::shared_ptr<SearchOperation> inFlight = m_inFlightAddOperation.lock();
+            inFlight && (inFlight->roots == operation->roots) && (inFlight->defaultSavePath == operation->defaultSavePath))
+    {
+        operation = inFlight;
+    }
+    else
+    {
+        enumerateSearchOperation(operation);
+        m_inFlightAddOperation = operation;
+    }
+
+    return searchExistingContent(torrentSavePath, torrentDownloadPath, filePaths, torrentName, sourceFileName, operation).then(this, [](const SearchRootsResult &result)
     {
         return FileSearchResult {.savePath = result.savePath, .fileNames = result.fileNames};
     });
 }
 
-QFuture<SearchRootsResult> SessionImpl::searchExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName)
+std::shared_ptr<SessionImpl::SearchOperation> SessionImpl::composeSearchOperation(const Path &pointedRoot) const
+{
+    const Path defaultSavePath = savePath();
+    auto operation = std::make_shared<SearchOperation>();
+
+    if (!pointedRoot.isEmpty())
+        operation->roots.append({.path = pointedRoot, .origin = SearchOperation::Origin::Pointed, .enumerated = true});
+    for (const DiscoveryRoot &discoveryRoot : DiscoveryRoots::instance()->roots())
+    {
+        operation->roots.append({.path = discoveryRoot.path, .origin = SearchOperation::Origin::Discovery
+                , .enumerated = discoveryRoot.options.recursive});
+    }
+    for (const Path &entry : m_watchedFolderSavePaths)
+        operation->roots.append({.path = ((!entry.isEmpty() && entry.isRelative()) ? (defaultSavePath / entry) : entry)
+                , .origin = SearchOperation::Origin::WatchedFolder, .enumerated = false});
+
+    for (const SearchOperation::Root &root : operation->roots)
+        operation->searchRoots.append(root.path);
+    operation->defaultSavePath = defaultSavePath;
+
+    return operation;
+}
+
+void SessionImpl::enumerateSearchOperation(const std::shared_ptr<SearchOperation> &operation)
+{
+    const bool hasEnumeratedRoot = std::ranges::any_of(operation->roots, [](const SearchOperation::Root &root)
+    {
+        return root.enumerated;
+    });
+    if (!hasEnumeratedRoot)
+        return;
+
+    QMetaObject::invokeMethod(m_fileSearcher, [operation]
+    {
+        for (const SearchOperation::Root &root : operation->roots)
+        {
+            if (root.enumerated)
+                operation->subdirectoryMaps.append(enumerateSubdirectories(root.path));
+            else
+                operation->subdirectoryMaps.append(std::nullopt);
+        }
+    });
+}
+
+std::shared_ptr<SessionImpl::SearchOperation> SessionImpl::createSearchOperation(const Path &pointedRoot)
+{
+    std::shared_ptr<SearchOperation> operation = composeSearchOperation(pointedRoot);
+    enumerateSearchOperation(operation);
+    return operation;
+}
+
+QFuture<SearchRootsResult> SessionImpl::searchExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName, std::shared_ptr<const SearchOperation> operation)
 {
     const QString nameFormName = ((filePaths.size() == 1) && Path::findRootFolder(filePaths).isEmpty())
             ? filePaths.at(0).removedExtension().toString() : torrentName;
-
-    PathList searchRoots;
-    for (const Path &entry : m_watchedFolderSavePaths)
-    {
-        if (!entry.isEmpty() && entry.isRelative())
-            searchRoots.append(savePath() / entry);
-        else
-            searchRoots.append(entry);
-    }
-
-    const PathList candidates = candidateRoots(torrentSavePath, torrentDownloadPath, searchRoots, savePath(), nameFormName, sourceFileName);
 
     const bool appendExtension = isAppendExtensionEnabled();
     QPromise<SearchRootsResult> promise;
@@ -3558,25 +3645,46 @@ QFuture<SearchRootsResult> SessionImpl::searchExistingContent(const Path &torren
     promise.start();
     QMetaObject::invokeMethod(m_fileSearcher, [=, this, promise = std::move(promise)]() mutable
     {
+        const PathList candidates = candidateRoots(torrentSavePath, torrentDownloadPath, operation->searchRoots
+                , operation->defaultSavePath, nameFormName, sourceFileName, operation->subdirectoryMaps);
         m_fileSearcher->searchRoots(filePaths, torrentSavePath, torrentDownloadPath, candidates, appendExtension, promise);
         promise.finish();
     });
 
-    return future.then(this, [this, searchRoots, defaultSavePath = savePath(), nameFormName, torrentName, sourceFileName](const SearchRootsResult &result)
+    return future.then(this, [this, operation = std::move(operation), nameFormName, torrentName, sourceFileName](const SearchRootsResult &result)
     {
         if (!result.foundAtOwnPath && (result.matchCount > 0))
         {
-            Path root;
-            for (const Path &entry : searchRoots)
+            const SearchOperation::Root *winningRoot = nullptr;
+            for (qsizetype i = 0; i < operation->roots.size(); ++i)
             {
-                if (candidateRoots({}, {}, {entry}, defaultSavePath, nameFormName, sourceFileName).contains(result.savePath))
+                const SearchOperation::Root &root = operation->roots.at(i);
+                if (candidateRoots({}, {}, {root.path}, operation->defaultSavePath, nameFormName, sourceFileName
+                        , {operation->subdirectoryMaps.value(i)}).contains(result.savePath))
                 {
-                    root = entry.isEmpty() ? defaultSavePath : entry;
+                    winningRoot = &root;
                     break;
                 }
             }
-            LogMsg(tr("Found existing torrent content. Torrent: \"%1\". Location: \"%2\". Found in: %3. Files found: %4")
-                    .arg(torrentName, result.savePath.toString(), tr("watched folder save path \"%1\"").arg(root.toString()), QString::number(result.matchCount)), Log::INFO);
+            if (winningRoot)
+            {
+                const Path entry = winningRoot->path.isEmpty() ? operation->defaultSavePath : winningRoot->path;
+                QString origin;
+                switch (winningRoot->origin)
+                {
+                case SearchOperation::Origin::Pointed:
+                    origin = tr("pointed root \"%1\"").arg(entry.toString());
+                    break;
+                case SearchOperation::Origin::Discovery:
+                    origin = tr("discovery root \"%1\"").arg(entry.toString());
+                    break;
+                case SearchOperation::Origin::WatchedFolder:
+                    origin = tr("watched folder save path \"%1\"").arg(entry.toString());
+                    break;
+                }
+                LogMsg(tr("Found existing torrent content. Torrent: \"%1\". Location: \"%2\". Found in: %3. Files found: %4")
+                        .arg(torrentName, result.savePath.toString(), origin, QString::number(result.matchCount)), Log::INFO);
+            }
         }
         else if ((result.matchCount == 0) && result.searchedCandidates)
         {

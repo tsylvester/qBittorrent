@@ -17,7 +17,7 @@
    <item>
     <widget class="QLabel" name="labelUnmatched">
      <property name="text">
-      <string>No existing content was found for these torrents. Set a location for each, or close to leave them where they are.</string>
+      <string>No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>

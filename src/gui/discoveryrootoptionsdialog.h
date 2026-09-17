@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2020-2025  Vladimir Golovnev <glassez@yandex.ru>
+ * Copyright (C) 2026  Tim Sylvester <t.j.sylvester@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,49 +28,26 @@
 
 #pragma once
 
-#include <optional>
+#include <QDialog>
 
-#include <QHash>
-#include <QObject>
-#include <QString>
+#include "base/discoveryroots.h"
 
-#include "base/path.h"
-
-template <typename T> class QPromise;
-
-using SubdirectoryMap = QHash<QString, PathList>;
-
-struct FileSearchResult
+namespace Ui
 {
-    Path savePath;
-    PathList fileNames;
-};
+    class DiscoveryRootOptionsDialog;
+}
 
-struct SearchRootsResult
-{
-    Path savePath;
-    PathList fileNames;
-    qsizetype matchCount = 0;
-    bool searchedCandidates = false;
-    bool foundAtOwnPath = false;
-};
-
-class FileSearcher final : public QObject
+class DiscoveryRootOptionsDialog final : public QDialog
 {
     Q_OBJECT
-    Q_DISABLE_COPY_MOVE(FileSearcher)
+    Q_DISABLE_COPY_MOVE(DiscoveryRootOptionsDialog)
 
 public:
-    using QObject::QObject;
+    explicit DiscoveryRootOptionsDialog(const DiscoveryRootOptions &options, QWidget *parent);
+    ~DiscoveryRootOptionsDialog() override;
 
-    void search(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, bool forceAppendExt, QPromise<FileSearchResult> &promise);
-    void searchRoots(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, const PathList &candidates, bool forceAppendExt, QPromise<SearchRootsResult> &promise);
+    DiscoveryRootOptions discoveryRootOptions() const;
+
+private:
+    Ui::DiscoveryRootOptionsDialog *m_ui = nullptr;
 };
-
-PathList candidateRoots(const Path &savePath, const Path &downloadPath, const PathList &searchRoots
-        , const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName
-        , const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {});
-
-SubdirectoryMap enumerateSubdirectories(const Path &root);

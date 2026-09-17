@@ -1,5 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
+ * Copyright (C) 2026  Tim Sylvester <t.j.sylvester@gmail.com>
  * Copyright (C) 2018-2026  Vladimir Golovnev <glassez@yandex.ru>
  * Copyright (C) 2024  Jonathan Ketchker
  * Copyright (C) 2006-2012  Christophe Dumez <chris@qbittorrent.org>
@@ -48,6 +49,7 @@
 #include <QTimer>
 
 #include "base/bittorrent/session.h"
+#include "base/discoveryroots.h"
 #include "base/global.h"
 #include "base/interfaces/iapplication.h"
 #include "base/net/downloadmanager.h"
@@ -187,6 +189,12 @@ void AppController::preferencesAction()
     data[u"find_location_recheck_enabled"_s] = session->isFindLocationRecheckEnabled();
     data[u"find_location_seed_enabled"_s] = session->isFindLocationSeedEnabled();
     data[u"find_location_leech_enabled"_s] = session->isFindLocationLeechEnabled();
+
+    QJsonArray discoveryRoots;
+    for (const DiscoveryRoot &root : DiscoveryRoots::instance()->roots())
+        discoveryRoots.append(QJsonObject {{u"path"_s, root.path.toString()}, {u"recursive"_s, root.options.recursive}});
+    data[u"find_location_discovery_roots"_s] = discoveryRoots;
+
     // Saving Management
     data[u"auto_tmm_enabled"_s] = !session->isAutoTMMDisabledByDefault();
     data[u"torrent_changed_tmm_enabled"_s] = !session->isDisableAutoTMMWhenCategoryChanged();
@@ -624,6 +632,8 @@ void AppController::setPreferencesAction()
         session->setFindLocationSeedEnabled(it.value().toBool());
     if (hasKey(u"find_location_leech_enabled"_s))
         session->setFindLocationLeechEnabled(it.value().toBool());
+    if (hasKey(u"find_location_discovery_roots"_s))
+        DiscoveryRoots::instance()->setRoots(parseDiscoveryRoots(QJsonArray::fromVariantList(it.value().toList())));
 
     // Saving Management
     if (hasKey(u"auto_tmm_enabled"_s))

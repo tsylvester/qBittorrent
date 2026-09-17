@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2020-2025  Vladimir Golovnev <glassez@yandex.ru>
+ * Copyright (C) 2026  Tim Sylvester <t.j.sylvester@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,51 +26,27 @@
  * exception statement from your version.
  */
 
-#pragma once
+#include "discoveryrootoptionsdialog.h"
 
-#include <optional>
+#include "ui_discoveryrootoptionsdialog.h"
 
-#include <QHash>
-#include <QObject>
-#include <QString>
-
-#include "base/path.h"
-
-template <typename T> class QPromise;
-
-using SubdirectoryMap = QHash<QString, PathList>;
-
-struct FileSearchResult
+DiscoveryRootOptionsDialog::DiscoveryRootOptionsDialog(const DiscoveryRootOptions &options, QWidget *parent)
+    : QDialog {parent}
+    , m_ui {new Ui::DiscoveryRootOptionsDialog}
 {
-    Path savePath;
-    PathList fileNames;
-};
+    m_ui->setupUi(this);
+    m_ui->checkBoxRecursive->setChecked(options.recursive);
 
-struct SearchRootsResult
+    connect(m_ui->buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(m_ui->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+}
+
+DiscoveryRootOptionsDialog::~DiscoveryRootOptionsDialog()
 {
-    Path savePath;
-    PathList fileNames;
-    qsizetype matchCount = 0;
-    bool searchedCandidates = false;
-    bool foundAtOwnPath = false;
-};
+    delete m_ui;
+}
 
-class FileSearcher final : public QObject
+DiscoveryRootOptions DiscoveryRootOptionsDialog::discoveryRootOptions() const
 {
-    Q_OBJECT
-    Q_DISABLE_COPY_MOVE(FileSearcher)
-
-public:
-    using QObject::QObject;
-
-    void search(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, bool forceAppendExt, QPromise<FileSearchResult> &promise);
-    void searchRoots(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, const PathList &candidates, bool forceAppendExt, QPromise<SearchRootsResult> &promise);
-};
-
-PathList candidateRoots(const Path &savePath, const Path &downloadPath, const PathList &searchRoots
-        , const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName
-        , const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {});
-
-SubdirectoryMap enumerateSubdirectories(const Path &root);
+    return {.recursive = m_ui->checkBoxRecursive->isChecked()};
+}

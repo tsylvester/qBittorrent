@@ -1723,6 +1723,10 @@ void TorrentsController::findLocationAction()
     if (!BitTorrent::Session::instance()->isFindLocationEnabled())
         throw APIError(APIErrorType::Conflict, tr("Find location is disabled"));
 
+    const Path root {params()[u"root"_s].trimmed()};
+    if (!root.isEmpty() && !Utils::Fs::isDir(root))
+        throw APIError(APIErrorType::Conflict, tr("Folder does not exist"));
+
     QList<BitTorrent::TorrentID> submitted;
     const QString hashesParam = params()[u"hashes"_s];
     if (!hashesParam.isEmpty())
@@ -1741,8 +1745,8 @@ void TorrentsController::findLocationAction()
         });
     }
 
-    for (const BitTorrent::TorrentID &id : asConst(submitted))
-        BitTorrent::Session::instance()->findTorrentLocation(id);
+    if (!submitted.isEmpty())
+        BitTorrent::Session::instance()->findTorrentLocations(submitted, root);
 
     QJsonArray pending;
     QJsonArray matched;

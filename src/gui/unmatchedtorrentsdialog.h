@@ -30,8 +30,11 @@
 
 #include <QDialog>
 #include <QList>
+#include <QSet>
 
 #include "base/bittorrent/infohash.h"
+
+class Path;
 
 namespace Ui
 {
@@ -51,8 +54,11 @@ public:
 
 private:
     void setCurrentTorrentLocation();
+    void searchFolder();
+    void handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, bool found);
     void removeTorrent(const BitTorrent::TorrentID &id);
 
     Ui::UnmatchedTorrentsDialog *m_ui = nullptr;
     QList<BitTorrent::TorrentID> m_torrentIDs;
+    QSet<BitTorrent::TorrentID> m_pendingSearches;
 };

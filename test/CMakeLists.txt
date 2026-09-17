@@ -11,10 +11,12 @@ set(testFiles
     testbittorrentfilesearcher.cpp
     testbittorrentfilesearchermultiroot.cpp
     testbittorrentpeeraddress.cpp
+    testbittorrentsubdirectories.cpp
     testbittorrenttorrentdescriptor.cpp
     testbittorrenttrackerentry.cpp
     testconceptsexplicitlyconvertibleto.cpp
     testconceptsstringable.cpp
+    testdiscoveryroots.cpp
     testglobal.cpp
     testorderedset.cpp
     testpath.cpp

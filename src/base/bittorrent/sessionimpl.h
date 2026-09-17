@@ -32,6 +32,7 @@
 
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -486,6 +487,7 @@ namespace BitTorrent
         void bottomTorrentsQueuePos(const QList<TorrentID> &ids) override;
 
         void findTorrentLocation(const TorrentID &id) override;
+        void findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot = {}) override;
         void assignTorrentLocation(const TorrentID &id, const Path &location) override;
 
         QString lastExternalIPv4Address() const override;
@@ -667,7 +669,11 @@ namespace BitTorrent
         void handleSaveResumeDataFailedAlert(const lt::save_resume_data_failed_alert *alert);
         void handleTorrentCheckedAlert(const lt::torrent_checked_alert *alert);
         void handleTorrentFinishedAlert(const lt::torrent_finished_alert *alert);
-        QFuture<SearchRootsResult> searchExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName);
+        struct SearchOperation;
+        std::shared_ptr<SearchOperation> composeSearchOperation(const Path &pointedRoot) const;
+        void enumerateSearchOperation(const std::shared_ptr<SearchOperation> &operation);
+        std::shared_ptr<SearchOperation> createSearchOperation(const Path &pointedRoot);
+        QFuture<SearchRootsResult> searchExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName, std::shared_ptr<const SearchOperation> operation);
         void searchStartedTorrentLocation(TorrentImpl *torrent, quint64 token);
         void assignStartedTorrentLocation(TorrentImpl *torrent, const Path &location);
         void forceLocationAssignmentRecheck(TorrentImpl *torrent);
@@ -903,6 +909,7 @@ namespace BitTorrent
         FileSearcher *m_fileSearcher = nullptr;
         PathList m_watchedFolderSavePaths;
         QHash<TorrentID, LocationAssignmentState> m_locationAssignments;
+        std::weak_ptr<SearchOperation> m_inFlightAddOperation;
         quint64 m_nextLocationAssignmentToken = 0;
         TorrentContentRemover *m_torrentContentRemover = nullptr;
 

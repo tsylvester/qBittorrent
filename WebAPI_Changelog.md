@@ -3,6 +3,10 @@
 ## 2.16.2
 
 * [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)
+  * `app/preferences` endpoint includes `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option
+  * `app/setPreferences` endpoint allows to set `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option
+  * `torrents/findLocation` endpoint accepts optional parameter `root` (string), an existing directory searched ahead of every other root for the torrents that request registers
+* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)
   * `app/preferences` endpoint includes `find_location_on_start_enabled` (bool), `find_location_recheck_enabled` (bool), `find_location_seed_enabled` (bool) and `find_location_leech_enabled` (bool) options
   * `app/setPreferences` endpoint allows to set `find_location_on_start_enabled` (bool), `find_location_recheck_enabled` (bool), `find_location_seed_enabled` (bool) and `find_location_leech_enabled` (bool) options
   * Add `torrents/findLocation` endpoint with optional parameter `hashes` for finding the existing content of torrents and assigning each location found, answering HTTP 202 with `pending`, `matched` and `unmatched` while any torrent is pending and HTTP 200 once none is

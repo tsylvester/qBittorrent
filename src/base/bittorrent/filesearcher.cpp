@@ -29,6 +29,11 @@
 
 #include "filesearcher.h"
 
+#include <algorithm>
+
+#include <QDir>
+#include <QDirIterator>
+#include <QFileInfo>
 #include <QPromise>
 
 #include "base/bittorrent/common.h"
@@ -84,6 +89,13 @@ namespace
             return false;
         const QString rootItem = name.rootItem().data();
         return (rootItem != u"."_s) && (rootItem != u".."_s);
+    }
+
+    QString foldedName(const QString &name)
+    {
+        if (Path::CASE_SENSITIVITY == Qt::CaseInsensitive)
+            return name.toCaseFolded();
+        return name;
     }
 }
 
@@ -187,7 +199,8 @@ void FileSearcher::searchRoots(const PathList &originalFileNames, const Path &sa
 }
 
 PathList candidateRoots(const Path &savePath, const Path &downloadPath, const PathList &searchRoots
-        , const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName)
+        , const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName
+        , const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps)
 {
     PathList result;
     const auto tryAppend = [&](const Path &form)
@@ -202,20 +215,71 @@ PathList candidateRoots(const Path &savePath, const Path &downloadPath, const Pa
     const Path sourceStem = Path(sourceFileName).removedExtension(TORRENT_FILE_EXTENSION);
     const bool hasSource = isContainedName(sourceStem);
 
-    for (const Path &root : searchRoots)
+    for (qsizetype i = 0; i < searchRoots.size(); ++i)
     {
-        Path effectiveRoot = root;
+        Path effectiveRoot = searchRoots.at(i);
         if (effectiveRoot.isEmpty())
             effectiveRoot = defaultSavePath;
         if (effectiveRoot.isEmpty())
             continue;
 
+        const std::optional<SubdirectoryMap> &map = subdirectoryMaps.value(i);
+        if (!map.has_value())
+        {
+            tryAppend(effectiveRoot);
+            if (hasName)
+                tryAppend(effectiveRoot / nameForm);
+            if (hasSource)
+                tryAppend(effectiveRoot / sourceStem);
+            continue;
+        }
+
         tryAppend(effectiveRoot);
         if (hasName)
-            tryAppend(effectiveRoot / nameForm);
+        {
+            for (const Path &hit : map->value(foldedName(nameForm.data())))
+            {
+                tryAppend(hit.parentPath());
+                tryAppend(hit);
+            }
+        }
         if (hasSource)
-            tryAppend(effectiveRoot / sourceStem);
+        {
+            for (const Path &hit : map->value(foldedName(sourceStem.data())))
+            {
+                tryAppend(hit.parentPath());
+                tryAppend(hit);
+            }
+        }
     }
 
     return result;
+}
+
+SubdirectoryMap enumerateSubdirectories(const Path &root)
+{
+    SubdirectoryMap map;
+    if (root.isEmpty())
+        return map;
+
+    PathList pending {root};
+    for (qsizetype i = 0; i < pending.size(); ++i)
+    {
+        const Path directory = pending.at(i);
+        QDirIterator iter {directory.data(), (QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks)};
+        while (iter.hasNext())
+        {
+            const QFileInfo info = iter.nextFileInfo();
+            if (info.isJunction())
+                continue;
+            const Path subdirectory {info.filePath()};
+            map[foldedName(subdirectory.filename())].append(subdirectory);
+            pending.append(subdirectory);
+        }
+    }
+
+    for (PathList &paths : map)
+        std::ranges::sort(paths, {}, &Path::data);
+
+    return map;
 }
