@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2020-2025  Vladimir Golovnev <glassez@yandex.ru>
+ * Copyright (C) 2026  Tim Sylvester <t.j.sylvester@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,49 +28,54 @@
 
 #pragma once
 
-#include <optional>
-
-#include <QHash>
+#include <QList>
 #include <QObject>
-#include <QString>
 
 #include "base/path.h"
 
-template <typename T> class QPromise;
+class QJsonArray;
 
-using SubdirectoryMap = QHash<QString, PathList>;
-
-struct FileSearchResult
+struct DiscoveryRootOptions
 {
-    Path savePath;
-    PathList fileNames;
+    bool recursive = false;
+
+    bool operator==(const DiscoveryRootOptions &other) const = default;
 };
 
-struct SearchRootsResult
+struct DiscoveryRoot
 {
-    Path savePath;
-    PathList fileNames;
-    qsizetype matchCount = 0;
-    bool searchedCandidates = false;
-    bool foundAtOwnPath = false;
+    Path path;
+    DiscoveryRootOptions options;
+
+    bool operator==(const DiscoveryRoot &other) const = default;
 };
 
-class FileSearcher final : public QObject
+class DiscoveryRoots final : public QObject
 {
     Q_OBJECT
-    Q_DISABLE_COPY_MOVE(FileSearcher)
+    Q_DISABLE_COPY_MOVE(DiscoveryRoots)
 
 public:
-    using QObject::QObject;
+    static void initInstance();
+    static void freeInstance();
+    static DiscoveryRoots *instance();
 
-    void search(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, bool forceAppendExt, QPromise<FileSearchResult> &promise);
-    void searchRoots(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, const PathList &candidates, bool forceAppendExt, QPromise<SearchRootsResult> &promise);
+    QList<DiscoveryRoot> roots() const;
+    void setRoots(const QList<DiscoveryRoot> &roots);
+
+signals:
+    void rootsChanged();
+
+private:
+    explicit DiscoveryRoots(QObject *parent = nullptr);
+
+    void load();
+    void store() const;
+
+    static DiscoveryRoots *m_instance;
+
+    QList<DiscoveryRoot> m_roots;
 };
 
-PathList candidateRoots(const Path &savePath, const Path &downloadPath, const PathList &searchRoots
-        , const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName
-        , const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {});
-
-SubdirectoryMap enumerateSubdirectories(const Path &root);
+QList<DiscoveryRoot> parseDiscoveryRoots(const QJsonArray &jsonArray);
+QJsonArray serializeDiscoveryRoots(const QList<DiscoveryRoot> &roots);

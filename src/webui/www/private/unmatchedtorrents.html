@@ -14,6 +14,7 @@
         window.addEventListener("DOMContentLoaded", (event) => {
             const unmatchedTorrents = document.getElementById("unmatchedTorrents");
             const unmatchedLocation = document.getElementById("unmatchedLocation");
+            const searchFolderButton = document.getElementById("searchFolderButton");
             const setLocationButton = document.getElementById("setLocationButton");
 
             const selectFirstOption = () => {
@@ -107,6 +108,66 @@
                     });
             });
 
+            const handleFindLocationResponse = async (response) => {
+                if (!response.ok) {
+                    document.getElementById("error_div").textContent = await response.text();
+                    searchFolderButton.disabled = false;
+                    return;
+                }
+
+                if (response.status === 202) {
+                    setTimeout(() => {
+                        fetch("api/v2/torrents/findLocation", {
+                                method: "POST"
+                            })
+                            .then(handleFindLocationResponse);
+                    }, 1000);
+                    return;
+                }
+
+                const answer = await response.json();
+                const matched = new Set(answer.matched.map((entry) => entry.hash));
+                for (const option of [...unmatchedTorrents.options]) {
+                    if (matched.has(option.value))
+                        option.remove();
+                }
+
+                searchFolderButton.disabled = false;
+
+                if (unmatchedTorrents.options.length === 0) {
+                    window.parent.qBittorrent.Client.closeFrameWindow(window);
+                    return;
+                }
+
+                selectFirstOption();
+            };
+
+            searchFolderButton.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+
+                if (unmatchedTorrents.options.length === 0)
+                    return;
+
+                const root = unmatchedLocation.value.trim();
+                if (root === "") {
+                    document.getElementById("error_div").textContent = "QBT_TR(Save path is empty)QBT_TR[CONTEXT=TorrentsController]";
+                    return;
+                }
+
+                searchFolderButton.disabled = true;
+                document.getElementById("error_div").textContent = "";
+
+                fetch("api/v2/torrents/findLocation", {
+                        method: "POST",
+                        body: new URLSearchParams({
+                            hashes: [...unmatchedTorrents.options].map((option) => option.value).join("|"),
+                            root: root
+                        })
+                    })
+                    .then(handleFindLocationResponse);
+            });
+
             document.getElementById("closeButton").addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -121,12 +182,13 @@
 
 <body>
     <div style="padding: 10px 10px 0px 10px;">
-        <p id="unmatchedLabel">QBT_TR(No existing content was found for these torrents. Set a location for each, or close to leave them where they are.)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]</p>
+        <p id="unmatchedLabel">QBT_TR(No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]</p>
         <select id="unmatchedTorrents" size="6" style="width: 99%;" aria-labelledby="unmatchedLabel"></select>
         <label for="unmatchedLocation" style="font-weight: bold;">QBT_TR(Location:)QBT_TR[CONTEXT=TransferListWidget]</label>
         <input type="text" id="unmatchedLocation" class="pathDirectory" autocorrect="off" autocapitalize="none" style="width: 99%;">
         <div style="float: none; width: 99%;" id="error_div">&nbsp;</div>
         <div style="text-align: center; padding-top: 10px;">
+            <input type="button" value="QBT_TR(Search folder...)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="searchFolderButton">
             <input type="button" value="QBT_TR(Set location...)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="setLocationButton">
             <input type="button" value="QBT_TR(Close)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="closeButton">
         </div>

@@ -1,6 +1,6 @@
 /*
  * Bittorrent Client using Qt and libtorrent.
- * Copyright (C) 2020-2025  Vladimir Golovnev <glassez@yandex.ru>
+ * Copyright (C) 2026  Tim Sylvester <t.j.sylvester@gmail.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,49 +28,36 @@
 
 #pragma once
 
-#include <optional>
+#include <QAbstractListModel>
+#include <QList>
 
-#include <QHash>
-#include <QObject>
-#include <QString>
-
+#include "base/discoveryroots.h"
 #include "base/path.h"
 
-template <typename T> class QPromise;
-
-using SubdirectoryMap = QHash<QString, PathList>;
-
-struct FileSearchResult
-{
-    Path savePath;
-    PathList fileNames;
-};
-
-struct SearchRootsResult
-{
-    Path savePath;
-    PathList fileNames;
-    qsizetype matchCount = 0;
-    bool searchedCandidates = false;
-    bool foundAtOwnPath = false;
-};
-
-class FileSearcher final : public QObject
+class DiscoveryRootsModel final : public QAbstractListModel
 {
     Q_OBJECT
-    Q_DISABLE_COPY_MOVE(FileSearcher)
+    Q_DISABLE_COPY_MOVE(DiscoveryRootsModel)
 
 public:
-    using QObject::QObject;
+    explicit DiscoveryRootsModel(DiscoveryRoots *discoveryRoots, QObject *parent = nullptr);
 
-    void search(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, bool forceAppendExt, QPromise<FileSearchResult> &promise);
-    void searchRoots(const PathList &originalFileNames, const Path &savePath
-            , const Path &downloadPath, const PathList &candidates, bool forceAppendExt, QPromise<SearchRootsResult> &promise);
+    int rowCount(const QModelIndex &parent = {}) const override;
+    int columnCount(const QModelIndex &parent = {}) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
+
+    void addRoot(const Path &path, const DiscoveryRootOptions &options);
+
+    DiscoveryRootOptions rootOptions(int row) const;
+    void setRootOptions(int row, const DiscoveryRootOptions &options);
+
+    void apply();
+
+private:
+    void onRootsChanged();
+
+    DiscoveryRoots *m_discoveryRoots = nullptr;
+    QList<DiscoveryRoot> m_roots;
 };
-
-PathList candidateRoots(const Path &savePath, const Path &downloadPath, const PathList &searchRoots
-        , const Path &defaultSavePath, const QString &torrentName, const QString &sourceFileName
-        , const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {});
-
-SubdirectoryMap enumerateSubdirectories(const Path &root);

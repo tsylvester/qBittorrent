@@ -55,6 +55,11 @@ UnmatchedTorrentsDialog::UnmatchedTorrentsDialog(QWidget *parent, const QList<Bi
 
     m_ui->listTorrents->setCurrentRow(0);
 
+    QPushButton *searchFolderButton = m_ui->buttonBox->addButton(tr("Search folder..."), QDialogButtonBox::ActionRole);
+    connect(searchFolderButton, &QAbstractButton::clicked, this, &UnmatchedTorrentsDialog::searchFolder);
+    connect(BitTorrent::Session::instance(), &BitTorrent::Session::torrentLocationFound
+            , this, &UnmatchedTorrentsDialog::handleTorrentLocationFound);
+
     QPushButton *setLocationButton = m_ui->buttonBox->addButton(tr("Set location..."), QDialogButtonBox::ActionRole);
     connect(setLocationButton, &QAbstractButton::clicked, this, &UnmatchedTorrentsDialog::setCurrentTorrentLocation);
     connect(m_ui->listTorrents, &QListWidget::itemDoubleClicked, this, &UnmatchedTorrentsDialog::setCurrentTorrentLocation);
@@ -109,6 +114,45 @@ void UnmatchedTorrentsDialog::setCurrentTorrentLocation()
     });
 
     fileDialog->open();
+}
+
+void UnmatchedTorrentsDialog::searchFolder()
+{
+    auto *fileDialog = new QFileDialog(this, tr("Choose a folder to search"));
+    fileDialog->setAttribute(Qt::WA_DeleteOnClose);
+    fileDialog->setFileMode(QFileDialog::Directory);
+    fileDialog->setOptions(QFileDialog::DontConfirmOverwrite | QFileDialog::ShowDirsOnly | QFileDialog::HideNameFilterDetails);
+    connect(fileDialog, &QDialog::accepted, this, [this, fileDialog]()
+    {
+        const Path folder {fileDialog->selectedFiles().constFirst()};
+        if (!folder.exists())
+            return;
+
+        QList<BitTorrent::TorrentID> submitted;
+        for (const BitTorrent::TorrentID &id : m_torrentIDs)
+        {
+            if (m_pendingSearches.contains(id))
+                continue;
+            m_pendingSearches.insert(id);
+            submitted.append(id);
+        }
+        if (!submitted.isEmpty())
+            BitTorrent::Session::instance()->findTorrentLocations(submitted, folder);
+    });
+
+    fileDialog->open();
+}
+
+void UnmatchedTorrentsDialog::handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, const bool found)
+{
+    if (!m_pendingSearches.remove(id))
+        return;
+
+    if (found && m_torrentIDs.contains(id))
+    {
+        BitTorrent::Session::instance()->assignTorrentLocation(id, location);
+        removeTorrent(id);
+    }
 }
 
 void UnmatchedTorrentsDialog::removeTorrent(const BitTorrent::TorrentID &id)

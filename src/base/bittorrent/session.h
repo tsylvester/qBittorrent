@@ -512,6 +512,7 @@ namespace BitTorrent
         virtual void bottomTorrentsQueuePos(const QList<TorrentID> &ids) = 0;
 
         virtual void findTorrentLocation(const TorrentID &id) = 0;
+        virtual void findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot = {}) = 0;
         virtual void assignTorrentLocation(const TorrentID &id, const Path &location) = 0;
 
         virtual QString lastExternalIPv4Address() const = 0;

@@ -26,6 +26,8 @@
  * exception statement from your version.
  */
 
+#include <optional>
+
 #include <QObject>
 #include <QTest>
 
@@ -161,6 +163,163 @@ private slots:
         QSKIP("Requires case-insensitive path comparison.");
 #endif
     }
+
+    void testDeepHitContributesParentThenDirectory() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"Album"_s), {Path(u"/library/a/b/Album"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/a/b"_s), Path(u"/library/a/b/Album"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testShallowHitParentCollapsesIntoRootForm() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"Album"_s), {Path(u"/library/Album"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/Album"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testEveryHitOfRepeatedNameContributes() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"Album"_s), {Path(u"/library/a/Album"_s), Path(u"/library/b/Album"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/a"_s), Path(u"/library/a/Album"_s)
+                , Path(u"/library/b"_s), Path(u"/library/b/Album"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testSourceHitsFollowNameHits() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"Album"_s), {Path(u"/library/p/Album"_s)}},
+                {fold(u"Album Rip"_s), {Path(u"/library/q/Album Rip"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/p"_s), Path(u"/library/p/Album"_s)
+                , Path(u"/library/q"_s), Path(u"/library/q/Album Rip"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testSharedParentContributesOnce() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"Album"_s), {Path(u"/library/x/Album"_s)}},
+                {fold(u"Album Rip"_s), {Path(u"/library/x/Album Rip"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/x"_s), Path(u"/library/x/Album"_s)
+                , Path(u"/library/x/Album Rip"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testHitParentEqualToOwnPathIsExcluded() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"Album"_s), {Path(u"/library/p/Album"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/library/p"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/p/Album"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testUncontainedNameIsNotLookedUp() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u".."_s), {Path(u"/elsewhere/inner"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u".."_s, u""_s, maps);
+        const PathList expected {Path(u"/library"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testEnumeratedRootContributesRootFormOnMiss() const
+    {
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testRootsBeyondMapsAreProbed() const
+    {
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s), Path(u"/watch"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/watch"_s), Path(u"/watch/Album"_s), Path(u"/watch/Album Rip"_s)};
+        QCOMPARE(result, expected);
+    }
+
+    void testNulloptMapIsProbed() const
+    {
+        const QList<std::optional<SubdirectoryMap>> maps {std::nullopt};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"/library"_s)}, Path(u"/default"_s), u"Album"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"/library"_s), Path(u"/library/Album"_s), Path(u"/library/Album Rip"_s)};
+        QCOMPARE(result, expected);
+    }
+
+#ifdef Q_OS_WIN
+    void testLookupFoldsCaseOnWindows() const
+    {
+        const auto fold = [](const QString &name)
+        {
+            return (Path::CASE_SENSITIVITY == Qt::CaseInsensitive) ? name.toCaseFolded() : name;
+        };
+        const QList<std::optional<SubdirectoryMap>> maps {SubdirectoryMap {
+                {fold(u"album"_s), {Path(u"C:/library/x/Album"_s)}}}};
+
+        const PathList result = candidateRoots(Path(u"/save"_s), Path(u"/download"_s)
+                , {Path(u"C:/library"_s)}, Path(u"/default"_s), u"ALBUM"_s, u"Album Rip.torrent"_s, maps);
+        const PathList expected {Path(u"C:/library"_s), Path(u"C:/library/x"_s), Path(u"C:/library/x/Album"_s)};
+        QCOMPARE(result, expected);
+    }
+#endif
 };
 
 QTEST_APPLESS_MAIN(TestBittorrentCandidateRoots)
