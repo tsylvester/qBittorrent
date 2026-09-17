@@ -2,7 +2,7 @@
 
 Implement Find Location as three independently reviewable submissions, each landing as one commit with the subject and commit gate specified below.
 
-[The workplan](find-location_workplan.md) is authoritative for the files, symbols, existing-code context, edits, tests, manual verification cases, integration scenarios and commit contents of every submission. Steps 0 through 22 in [the dependency map](find-location_dependency_map.md) are dependency-ordered implementation units inside the three commits, never separate commits.
+[The workplan](find-location_workplan.md) is authoritative for the files, symbols, existing-code context, edits, tests, manual verification cases, integration scenarios and commit contents of every submission. Steps 0 through 25 in [the dependency map](find-location_dependency_map.md) are dependency-ordered implementation units inside the three commits, never separate commits.
 
 The requirements are defined by [the product requirements](find-location_product_requirements.md), [the feature specification](find-location_feature_spec.md), [the technical requirements](find-location_technical_requirements.md), [the non-functional requirements](find-location_nfr.md), [the system architecture](find-location_system_architecture.md) and [the technical approach](find-location_technical_approach.md).
 
@@ -43,7 +43,7 @@ The pull-request description states that `searchRoots()` probes the winning dire
 
 ## Submission 2 — Start-triggered, manual, batch and assignment
 
-Implement tickets T10 through T15 as one submission. Add-time and metadata-time discovery keep the behaviour Submission 1 delivers.
+Implement tickets T10 through T15, T23 and T24 as one submission. Add-time and metadata-time discovery keep the behaviour Submission 1 delivers.
 
 ### Required implementation order
 
@@ -53,6 +53,8 @@ Implement tickets T10 through T15 as one submission. Add-time and metadata-time 
 4. Complete step 13 only after steps 11 and 12.
 5. Complete step 14 only after step 13.
 6. Complete step 15 only after step 10. It may be implemented while steps 11 through 14 are in progress, and is included in this submission.
+7. Complete step 23 only after steps 11 and 12.
+8. Complete step 24 only after step 23.
 
 ### Transaction scope
 
@@ -64,6 +66,8 @@ Repeated Start requests for the same torrent coalesce, the last explicit Start m
 
 With the Start-trigger setting disabled, the master gate disabled, an ineligible torrent, or no transaction owning the callback, behaviour is the existing behaviour. Discovery runs asynchronously and never blocks the GUI thread. Before a search miss or a successful feature recheck, no payload file is allocated, created, truncated or written and no payload block is requested.
 
+The manual and batch modes reach the web interface and the headless daemon through `torrents/findLocation`, which holds one operation per web session in `TorrentsController`, assigns each match as its outcome arrives and answers HTTP 202 until no torrent is pending, and `torrents/assignLocation`, which assigns a named existing directory. Both reach discovery and assignment through `Session` alone. The web interface polls the first from its **Find location** context menu action and opens `setlocation.html` or `unmatchedtorrents.html` for torrents that matched nothing.
+
 A manual **Find location** assignment follows **Set location...** semantics: an incomplete torrent with a download path keeps its storage in that download path. Add-time and metadata-time adoption from Submission 1 clears the download path instead.
 
 The general force-recheck defect, [qBittorrent issue #14216](https://github.com/qbittorrent/qBittorrent/issues/14216), is separate work recorded in the workplan's To Do list. This submission adds only the feature-owned failure cleanup that keeps a failed Find Location transaction from releasing Start or retaining stale state, and `TorrentImpl::forceRecheck()` is unchanged.
@@ -74,22 +78,23 @@ Create one commit with the exact subject:
 
 `Find location before starting existing torrents`
 
-Put `Closes #8261.` in the commit body. Create the commit only after every Epic 2 workplan node is implemented; all seventeen Epic 2 integration scenarios pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
+Put `Closes #8261.` in the commit body. Create the commit only after every Epic 2 workplan node is implemented; all nineteen Epic 2 integration scenarios pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
 
-Include `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on both WebAPI preference endpoints, their desktop and WebUI controls, and one changelog entry linking the pull request. `API_VERSION` and the changelog version headings are set by the maintainers.
+Include `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on both WebAPI preference endpoints, their desktop and WebUI controls, the `torrents/findLocation` and `torrents/assignLocation` actions with the web interface action and list, and one changelog entry naming the keys and actions and linking the pull request. `API_VERSION` and the changelog version headings are set by the maintainers.
 
 ## Submission 3 — discovery roots
 
-Implement tickets T16 through T22 as one submission.
+Implement tickets T16 through T22 and T25 as one submission. Every mode the submission adds or extends is offered by the desktop interface, the web interface and the WebAPI.
 
 ### Required implementation order
 
 1. Complete step 16 independently.
 2. Complete step 17 only after step 16.
 3. Complete step 18 only after steps 3, 16 and 17.
-4. Complete step 22 only after steps 5, 16, 17 and 18.
+4. Complete step 22 only after steps 5, 16, 17, 18 and 23.
 5. Complete steps 19 and 21 only after step 16. Either may be implemented while steps 17, 18 and 22 are in progress.
 6. Complete step 20 only after steps 12, 14 and 22.
+7. Complete step 25 only after steps 22 and 24.
 
 ### Commit gate
 
@@ -97,9 +102,9 @@ Create one commit with the exact subject:
 
 `Search discovery roots and pointed folders`
 
-Create it only after every Epic 3 workplan node is implemented; the manual cases for steps 19 through 22 and all eight Epic 3 integration scenarios pass; the Epic 2 integration scenarios still pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
+Create it only after every Epic 3 workplan node is implemented; the manual cases for steps 19 through 22 and 25 and all ten Epic 3 integration scenarios pass; the Epic 2 integration scenarios still pass; the full build and test suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows; the WebUI lint and format checks pass; and `WebAPI_Changelog.md` passes `rumdl`.
 
-Include `find_location_discovery_roots` on both WebAPI preference endpoints, its WebUI controls and one changelog entry linking the pull request. `API_VERSION` and the changelog version headings are set by the maintainers.
+Include `find_location_discovery_roots` on both WebAPI preference endpoints, its WebUI controls, the `root` parameter of `torrents/findLocation`, **Search folder...** in the web interface unmatched list, and one changelog entry naming the key and the parameter and linking the pull request. `API_VERSION` and the changelog version headings are set by the maintainers.
 
 ## Commit and pull-request requirements
 

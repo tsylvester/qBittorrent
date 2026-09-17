@@ -2,7 +2,7 @@
 
 The order the work is built in, from the components that depend on nothing to the surfaces that depend on everything. The behaviour is set out in [the feature specification](find-location_feature_spec.md), its implementation in [the technical approach](find-location_technical_approach.md), and the files, tests and verification of every step in [the workplan](find-location_workplan.md).
 
-Steps 0, 3, 4, 10, 16 and 17 carry no prerequisite, so work may begin at any of them and a selectable step exists at every point in the walk. Steps 5, 11, 13, 15, 18, 19, 20, 21 and 22 are where independent paths rejoin.
+Steps 0, 3, 4, 10, 16 and 17 carry no prerequisite, so work may begin at any of them and a selectable step exists at every point in the walk. Steps 5, 11, 13, 15, 18, 19, 20, 21, 22, 23, 24 and 25 are where independent paths rejoin. Steps 23 and 24 belong to the second iteration and step 25 to the third, each numbered after the third iteration's other steps.
 
 ## First iteration
 
@@ -116,7 +116,20 @@ The first iteration is complete and submittable at step 9.
 * **Produces** the Start-trigger checkbox and the three assignment checkboxes inside the **Find location** group, their enablement, and the `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` keys with one changelog entry and their web interface controls. `API_VERSION` is set by the maintainers.
 * **Consumes** steps 8, 9 and 10.
 
-The second iteration is complete and submittable at step 15.
+### 23. WebAPI discovery actions
+
+* **Location** `src/webui/api/torrentscontroller.h` and `torrentscontroller.cpp`, with `src/webui/webapplication.h` and `WebAPI_Changelog.md`.
+* **Produces** `torrents/findLocation`, which registers the torrents it names that hold metadata in the web session's operation map, a request naming none only reporting the operation, runs `Session::findTorrentLocation()` for those not already in it, assigns each match through `Session::assignTorrentLocation()` as its outcome arrives, and answers HTTP 202 with the pending, assigned and unmatched torrents while any is pending and HTTP 200 once none is, ending the operation; HTTP 409 while the feature group is disabled. `torrents/assignLocation`, which assigns a named existing directory through `Session::assignTorrentLocation()`. Both are POST-only, and the changelog entry names them. `API_VERSION` is set by the maintainers.
+* **Consumes** steps 11 and 12.
+* **Notes** `torrents/fetchMetadata` is the precedent for per-web-session state filled from a session signal and answered through `APIStatus::Async`.
+
+### 24. Web interface action and unmatched list
+
+* **Location** `src/webui/www/private/index.html`, `views/transferlist.html`, `scripts/contextmenu.js`, `scripts/mocha-init.js`, `setlocation.html` and `unmatchedtorrents.html`, registered in `src/webui/www/webui.qrc`.
+* **Produces** **Find location** after **Set location...** in the web interface transfer list context menu, shown while the selection holds a torrent with metadata and `find_location_enabled` holds, polling `torrents/findLocation` until it completes; one miss opening `setlocation.html` in its assigning mode; several opening `unmatchedtorrents.html`, which assigns an entered location to each entry through `torrents/assignLocation` and closes when abandoned or empty.
+* **Consumes** steps 9 and 23.
+
+The second iteration is complete and submittable once steps 10 through 15, 23 and 24 are complete.
 
 ## Third iteration
 
@@ -129,14 +142,14 @@ The second iteration is complete and submittable at step 15.
 ### 17. Enumeration
 
 * **Location** `src/base/bittorrent/filesearcher.h` and its implementation, with `test/testbittorrentsubdirectories.cpp`, run on the session I/O thread.
-* **Produces** `SubdirectoryMap` and `enumerateSubdirectories()`, listing a root's immediate subdirectories as a name-to-path map, keyed with the case folding `Path::CASE_SENSITIVITY` implies. A root that cannot be listed yields an empty map.
+* **Produces** `SubdirectoryMap` and `enumerateSubdirectories()`, walking every directory beneath a root, at any depth, into a map from name to every directory bearing that name in `Path::data()` order, keyed with the case folding `Path::CASE_SENSITIVITY` implies. Hidden directories, symbolic links and junctions are neither listed nor entered. A root that cannot be listed yields an empty map, and a directory beneath it that cannot be listed contributes nothing beneath it.
 * **Consumes** nothing.
 * **Notes** `Path` cannot key the map, since `qHash` hashes unfolded while `operator==` compares through `Path::CASE_SENSITIVITY`.
 
 ### 18. Candidate root extension
 
 * **Location** `src/base/bittorrent/filesearcher.h` and its implementation.
-* **Produces** `candidateRoots()` taking a trailing list of optional subdirectory maps. A search root with a map contributes the root form, the mapped directory in the name form's position, omitted when the lookup finds nothing, and the source form; a search root without one contributes the three forms as before. The order of the search roots is the order they arrive in, which step 22 sets.
+* **Produces** `candidateRoots()` taking a trailing list of optional subdirectory maps. A search root with a map contributes the root form, then, for each directory the map holds under the torrent's name and then under the source name, that directory's parent followed by the directory itself, nothing where a lookup finds nothing; a search root without one contributes the three forms as before. The order of the search roots is the order they arrive in, which step 22 sets.
 * **Consumes** steps 3 and 17.
 
 ### 19. Discovery root list
@@ -159,18 +172,24 @@ The second iteration is complete and submittable at step 15.
 
 ### 22. Session root composition
 
-* **Location** `src/base/bittorrent/session.h`, `sessionimpl.h` and `sessionimpl.cpp`, extending the composition built at steps 5 and 11, with `src/gui/transferlistwidget.cpp`.
-* **Produces** `Session::findTorrentLocations()`, a batch operation taking torrent IDs and an optional pointed root; each operation's search roots composed as the pointed root, then the discovery roots in configured order, then the watched folder save paths; the pointed root and every recursive discovery root listed once per operation and the maps shared by every torrent in it; an automatic addition reusing an add operation still in flight whose composed roots and default save path are unchanged; the log naming the exact root whose candidates contain the winning location, by its origin; and `findTorrentLocation()` running as a one-torrent batch. The transfer list submits each invocation's new torrents through one `findTorrentLocations()` call.
-* **Consumes** steps 5, 12, 13, 16, 17 and 18.
-* **Notes** composition stays in one place, so the add path, the metadata path and the GUI path gain discovery roots together.
+* **Location** `src/base/bittorrent/session.h`, `sessionimpl.h` and `sessionimpl.cpp`, extending the composition built at steps 5 and 11, with `src/gui/transferlistwidget.cpp` and `src/webui/api/torrentscontroller.cpp`.
+* **Produces** `Session::findTorrentLocations()`, a batch operation taking torrent IDs and an optional pointed root; each operation's search roots composed as the pointed root, then the discovery roots in configured order, then the watched folder save paths; the pointed root and every recursive discovery root listed once per operation and the maps shared by every torrent in it; an automatic addition reusing an add operation still in flight whose composed roots and default save path are unchanged; the log naming the exact root whose candidates contain the winning location, by its origin; and `findTorrentLocation()` running as a one-torrent batch. The transfer list and `torrents/findLocation` each submit an invocation's new torrents through one `findTorrentLocations()` call.
+* **Consumes** steps 5, 12, 13, 16, 17, 18 and 23.
+* **Notes** composition stays in one place, so the add path, the metadata path, the GUI path and the WebAPI path gain discovery roots together.
 
-The third iteration is complete and submittable at step 22.
+### 25. WebAPI and web interface pointed root
+
+* **Location** `src/webui/api/torrentscontroller.cpp`, `src/webui/www/private/unmatchedtorrents.html` and `WebAPI_Changelog.md`.
+* **Produces** the optional `root` parameter of `torrents/findLocation`, submitting a request's registered torrents through one `Session::findTorrentLocations()` call with that directory as the pointed root and answering HTTP 409 for a `root` that is not an existing directory, and **Search folder...** in `unmatchedtorrents.html`, searching the directory entered in its path field for every listed torrent, removing each torrent the answer reports matched, and repeatable while entries remain. The changelog entry names the parameter.
+* **Consumes** steps 22 and 24.
+
+The third iteration is complete and submittable once steps 16 through 22 and 25 are complete.
 
 ## Test plan
 
 Tests build under `-DTESTING=ON` and run through `cmake --build <build> --target check`. CI runs them on Ubuntu, macOS and Windows.
 
-Each test file links `Qt::Test` and `qbt_base`. Coverage therefore reaches `src/base` and stops there: `src/gui` is not linked and no fixture constructs a running session, so the resolution call sites and every GUI step are verified by hand, and the second and third iterations by the integration scenarios the workplan enumerates.
+Each test file links `Qt::Test` and `qbt_base`. Coverage therefore reaches `src/base` and stops there: `src/gui` is not linked and no fixture constructs a running session, so the resolution call sites and every GUI, WebAPI and web interface step are verified by hand, and the second and third iterations by the integration scenarios the workplan enumerates.
 
 ### Automated
 
@@ -178,8 +197,8 @@ Each test file links `Qt::Test` and `qbt_base`. Coverage therefore reaches `src/
 * **Step 2** `test/testbittorrentfilesearchermultiroot.cpp` covers `searchRoots()`: own paths scored with candidates and winning a tie, a candidate holding more beating an own path, scoring stopping once an own path holds every file, the most files winning, the earliest directory taking a tie, matching through `QB_EXT` without carrying rewritten names, `forceAppendExt` applied at the destination alone, a miss falling back to the destination, and absent, unreadable and empty roots contributing nothing. Directory fixtures go under `test/testdata/filesearcher`, resolved from `__FILE__` as `testutilsio.cpp` resolves its own.
 * **Step 3** `test/testbittorrentcandidateroots.cpp` covers the order of the returned list, the root form, name form and source form contributed per search root, exclusion of the torrent's own paths, substitution of `defaultSavePath` for an empty entry, duplicate collapse, the source extension stripped case-insensitively, names escaping their root being dropped, and duplicates folding case on Windows. It passes a `PathList` and asserts on the result.
 * **Step 16** `test/testdiscoveryroots.cpp` covers `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`: round-tripping order and options, the serialised shape, the recursion flag defaulting to false, and entries dropped for an empty or relative path, a non-object value or a repeated path.
-* **Step 17** `test/testbittorrentsubdirectories.cpp` covers `enumerateSubdirectories()` against a fixture tree under `test/testdata/filesearcher`: immediate subdirectories listed, files and nested directories not listed, absent and empty roots yielding an empty map, and keys folding case on Windows.
-* **Step 18** `test/testbittorrentcandidateroots.cpp` gains the enumerated cases: the name form served by lookup and using the mapped path, omitted on a miss, roots beyond the supplied maps and roots with `std::nullopt` probed as before, and lookup folding case on Windows.
+* **Step 17** `test/testbittorrentsubdirectories.cpp` covers `enumerateSubdirectories()` against a fixture tree under `test/testdata/filesearcher`: every directory in the tree listed at any depth, a name repeated at several places listing each in path order, files and the root itself not listed, hidden directories and symbolic links neither listed nor entered, an unreadable branch skipped while its siblings are listed, absent and empty roots yielding an empty map, and keys folding case on Windows.
+* **Step 18** `test/testbittorrentcandidateroots.cpp` gains the enumerated cases: a deep hit contributing its parent then itself, a hit directly beneath the root collapsing its parent into the root form, every hit of a repeated name contributing in map order, source-name hits following name hits, a shared parent contributing once, a hit's parent equal to an own path excluded, an uncontained name not looked up, nothing contributed on a miss, roots beyond the supplied maps and roots with `std::nullopt` probed as before, and lookup folding case on Windows.
 
 The five test files are added to `testFiles` in `test/CMakeLists.txt`.
 
@@ -192,11 +211,12 @@ Verified against a prepared directory tree and described in the pull request:
 * **Step 7** the same adoption holds for a magnet link once its metadata arrives, including with a configured download path.
 * **Step 8** unchecking the **Find location** group returns torrent add to its two-directory behaviour.
 * **Step 9** the two keys appear on `app/preferences`, setting them through `app/setPreferences` is reflected in the options dialog, a request omitting a key leaves its setting unchanged, and their controls render on the web interface preferences page and drive the same settings.
-* **Steps 10 through 15** are verified by the seventeen Epic 2 integration scenarios in the workplan.
+* **Steps 10 through 15, 23 and 24** are verified by the nineteen Epic 2 integration scenarios in the workplan.
 * **Step 16** the discovery root list persists its paths, order and flags across restarts; an absent file yields an empty list without a warning, and malformed JSON or a top-level object yields an empty list with a warning.
-* **Step 19** a discovery root configured with recursion resolves torrents whose content sits in its subdirectories.
+* **Step 19** a discovery root configured with recursion resolves torrents whose content folders sit directly beneath it and several determinant folders beneath it.
 * **Step 20** pointing the unmatched list at a directory holding the content resolves those torrents and shrinks the list, and pointing again at a second directory resolves the remainder.
+* **Step 25** pointing `unmatchedtorrents.html` at a directory holding the content resolves those torrents and shrinks the list, pointing again at a second directory resolves the remainder, and a `torrents/findLocation` request carrying `root` resolves torrents whose content sits only beneath that directory.
 * **Step 21** the discovery root list is readable through `app/preferences` and writable through `app/setPreferences`, a root added through the web interface appears in the options dialog list with its options intact, and on Windows each path is returned with the separators `save_path` uses while `discovery_roots.json` holds the `Path::data()` form.
-* **Step 22** a discovery root outranks a watched folder save path holding the same content, a pointed root outranks a discovery root holding the same content, a torrent added with no watched folder configured resolves against a discovery root, and a discovery root on absent storage leaves other roots resolving normally. Each operation lists each recursive root and the pointed root once, and the log names the exact root that produced each found location.
+* **Step 22** a discovery root outranks a watched folder save path holding the same content, a pointed root outranks a discovery root holding the same content, a torrent added with no watched folder configured resolves against a discovery root, and a discovery root on absent storage leaves other roots resolving normally. Each operation walks each recursive root and the pointed root once, and the log names the exact root that produced each found location. On Windows, a junction inside a recursive root pointing back at that root is not entered and the walk completes.
 
 The remaining Epic 3 integration scenarios in the workplan complete the third iteration's verification.

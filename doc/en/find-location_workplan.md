@@ -460,428 +460,628 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the keys it introduces, under the heading at the top of the file, and leaves `API_VERSION` unchanged.
         *   `[X]` The file passes the `rumdl` pre-commit hook.
 
-*   `[ ]` **Commit** `Find existing torrent content before downloading`
-    *   `[ ]` Structural: `SearchRootsResult`, `FileSearcher::searchRoots()` and `candidateRoots()` in `filesearcher`; four `Session` accessors backed by session settings, `Session::setWatchedFolderSavePaths()` and `SessionImpl::findExistingContent()`; `TorrentFilesWatcher::updateSessionWatchedFolderSavePaths()`; `groupFindLocation` and `checkFindLocationOnAdd` in the options dialog; the web interface **Find location** fieldset; three test executables and their fixtures.
-    *   `[ ]` Behavioural: while both settings are enabled, torrent add and metadata arrival resolve a manual-mode torrent by scoring its save path, its download path and the watched folder save paths together, choosing the location holding the most files with its own paths winning a tie, adopting a watched folder location as the torrent's save path with no download path, and logging the outcome with its originating folder; every other torrent resolves and logs as before.
-    *   `[ ]` Contract: `FileSearcher::search()` and `SessionImpl::findIncompleteFiles()` keep their signatures and behaviour; `FileSearcher::searchRoots()` scores the torrent's own paths alongside the search-only candidates; `app/preferences` and `app/setPreferences` gain two keys, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged.
-    *   `[ ]` The pull request description states that `searchRoots()` probes the winning directory twice, once through `countInDir()` and once through the unchanged `findInDir()`, so that `findInDir()` is untouched, and offers a single pass that records the winner's names while counting as an alternative for the maintainers to choose.
-    *   `[ ]` The contributor commits once the manual cases for steps 6 through 9 have passed and the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows.
+*   `[X]` **Commit** `Find existing torrent content before downloading`
+    *   `[X]` Structural: `SearchRootsResult`, `FileSearcher::searchRoots()` and `candidateRoots()` in `filesearcher`; four `Session` accessors backed by session settings, `Session::setWatchedFolderSavePaths()` and `SessionImpl::findExistingContent()`; `TorrentFilesWatcher::updateSessionWatchedFolderSavePaths()`; `groupFindLocation` and `checkFindLocationOnAdd` in the options dialog; the web interface **Find location** fieldset; three test executables and their fixtures.
+    *   `[X]` Behavioural: while both settings are enabled, torrent add and metadata arrival resolve a manual-mode torrent by scoring its save path, its download path and the watched folder save paths together, choosing the location holding the most files with its own paths winning a tie, adopting a watched folder location as the torrent's save path with no download path, and logging the outcome with its originating folder; every other torrent resolves and logs as before.
+    *   `[X]` Contract: `FileSearcher::search()` and `SessionImpl::findIncompleteFiles()` keep their signatures and behaviour; `FileSearcher::searchRoots()` scores the torrent's own paths alongside the search-only candidates; `app/preferences` and `app/setPreferences` gain two keys, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged.
+    *   `[X]` The pull request description states that `searchRoots()` probes the winning directory twice, once through `countInDir()` and once through the unchanged `findInDir()`, so that `findInDir()` is untouched, and offers a single pass that records the winner's names while counting as an alternative for the maintainers to choose.
+    *   `[X]` The contributor commits once the manual cases for steps 6 through 9 have passed and the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows.
 
 ## Epic 2 — Start-triggered, manual, batch and assignment
 
-*   `[ ]` [BE] src/base/bittorrent/`torrentimpl`, `session` and `sessionimpl` — preserve the existing Start, Stop, metadata, movement and check bodies; add one Start interception call and one private Stop-origin overload in `TorrentImpl`; add the fourth Find Location setting and the manual discovery operations to `Session`; factor `searchExistingContent()`; and extend one `SessionImpl` assignment map with the exact state needed to hold, cancel and release a pending Start. T10, T11, T12
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: discovery is reachable only from `SessionImpl`, which `src/gui` does not hold, so a torrent already in the session cannot be located on demand; assigning a location through the `Torrent` interface queues a storage move that a recheck issued at once would overtake; and `TorrentImpl::start()` currently clears an error and immediately leaves the stopped state or reloads missing files without giving Find Location an interception point.
-        *   `[ ]` Functional: for one torrent named by its ID, run discovery through the same composition the add path uses, and report the location it selected and whether any file was found there through a signal carrying that torrent's ID.
-        *   `[ ]` Functional: for one torrent named by its ID and a location, call the existing `setAutoTMMEnabled(false)` and `setSavePath(location)` operations in that order, as **Set location...** does; do not change either operation.
-        *   `[ ]` Functional: **Find location when starting stopped torrents**, **Recheck automatically**, **Seed automatically** and **Leech automatically** are session settings, each defaulting to enabled, persisting under its own key and writing only on a changed value.
-        *   `[ ]` Functional: while **Recheck automatically** is enabled, stop the torrent and recheck it at the assigned location, after its storage move where one is queued and at once where none is.
-        *   `[ ]` Functional: when a torrent held as awaiting a start decision reports its check, stop holding it and start it in auto-managed mode where its content is complete and **Seed automatically** is enabled, or where its content is incomplete and **Leech automatically** is enabled; otherwise leave it stopped at its location.
-        *   `[ ]` Functional: a second assignment to the location already held in the feature-owned assignment map is coalesced into the active assignment and performs no second location change or recheck; a second assignment to a different location replaces the active assignment.
-        *   `[ ]` Functional: an eligible explicit Start is held before `m_hasMissingFiles`, `m_isStopped` or native pause/resume state changes; a match is assigned and successfully rechecked before the saved normal or forced Start is released; a miss releases that Start without assignment; repeated Start updates the saved mode without duplicate work; Stop, removal, shutdown and every feature failure erase the pending Start before a late callback can act.
-        *   `[ ]` Non-functional: discovery probes on the session I/O thread and never blocks its caller; no feature branch creates, allocates or writes a payload file before a successful miss or successful feature recheck; assignment changes no implementation of the torrent location operations or the storage move queue; and every added lifecycle branch is guarded by an entry in `m_locationAssignments`.
-
-    *   `[ ]` `role`
-        *   `[ ]` `SessionImpl` is the feature owner because it already owns the torrent registry, the File Searcher, settings and the existing callbacks from `TorrentImpl`. `TorrentImpl` supplies only the two narrow entry points that cannot be implemented after the fact: pre-payload Start interception and distinguishing public Stop from its own stop-after-check call.
-        *   `[ ]` Out of scope: choosing which torrents to locate, presenting an outcome, and asking the user for a location, which are the `transferlistwidget` and `unmatchedtorrentsdialog` nodes; changing `TorrentImpl::setAutoTMMEnabled()`, `setSavePath()`, `setDownloadPath()`, `moveStorage()`, `forceRecheck()` or the move queue; adding a general lifecycle coordinator; and repairing force recheck outside a feature-owned transaction.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: four persisted booleans and their accessors; two `TorrentImpl` calls into `SessionImpl`; discovery for an existing torrent; one map entry holding phase, target, optional Start mode, one-shot Start pass and search token; exact transitions in the existing metadata, movement, check, error, removal and shutdown hooks. Outside: selection and presentation, candidate construction and probing, the move queue, and general torrent lifecycle behavior.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `filesearcher.h` — `SearchRootsResult`, `FileSearcher::searchRoots()`, `candidateRoots()` and `FileSearchResult`. Beside it in `src/base/bittorrent`, already included by `sessionimpl.cpp`.
-        *   `[ ]` `torrentimpl.h` — the public methods `TorrentImpl::setAutoTMMEnabled()`, `setSavePath()`, `setDownloadPath()`, `downloadPath()`, `actualStorageLocation()`, `stop()`, `start()`, `forceRecheck()`, `isMoving()`, `isFinished()`, `isChecking()`, `hasMetadata()`, `savePath()`, `filePaths()`, `info()` and `id()`. Beside it, already included by `sessionimpl.cpp`. Do not call private `TorrentImpl::isMoveInProgress()` from `SessionImpl`.
-        *   `[ ]` `base/settingvalue.h` — `CachedSettingValue`, already included by `sessionimpl.h`, with `BITTORRENT_SESSION_KEY` defined in `sessionimpl.cpp`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `TorrentImpl::setSavePath()` and `TorrentImpl::setDownloadPath()` use the existing storage move queue. `moveStorage()` marks the torrent moving when it enqueues a job, and `TorrentImpl::handleMoveStorageJobFinished()` calls `SessionImpl::handleTorrentStorageMovingStateChanged()` once no move is outstanding. A failed move reports the torrent's current location through the same completion path.
-        *   `[ ]` The existing queue handles overlapping location operations without a feature-specific path: it cancels an inactive queued job for the same torrent before appending the new job, lets an active job finish before a different destination queued behind it, and refuses a duplicate of the active destination. The feature calls the existing torrent setters and neither reads nor mutates `m_moveStorageQueue`.
-        *   `[ ]` `TorrentImpl::forceRecheck()` starts a stopped torrent with `StopCondition::FilesChecked`, so `TorrentImpl::handleTorrentChecked()` stops it again when the check completes and then, in its status-updated trigger, calls `SessionImpl::handleTorrentChecked()`, which emits `torrentFinishedChecking`.
-        *   `[ ]` `forceRecheck()` sets `m_nativeStatus.state` to `checking_resume_data` before its internal `start()` call. The plan nevertheless uses an explicit `LocationStartPass::Recheck` because that pass distinguishes the internal call from a repeated explicit Start and lets TX-6 update the latter's saved mode.
-        *   `[ ]` `TorrentImpl::setSavePath()` on an incomplete torrent with a non-empty download path records the save path without moving storage. `setDownloadPath({})` then moves that torrent's active storage to its save path. Start-triggered assignment uses this exact pair when necessary; manual assignment retains the existing single-`setSavePath()` semantics.
-        *   `[ ]` `findTorrentLocation()` and `assignTorrentLocation()` are called on the main thread by the `transferlistwidget` and `unmatchedtorrentsdialog` nodes through `BitTorrent::Session::instance()`, and `torrentLocationFound` is emitted on the main thread from a continuation whose context is `this`.
-        *   `[ ]` A metadata-less Start first stores its entry under the current ID. Under libtorrent 2, `TorrentImpl::handleMetadataReceived()` calls `SessionImpl::handleTorrentInfoHashChanged()` before the metadata pipeline later calls `handleTorrentMetadataReceived()`; the former must therefore re-key the waiting entry before the latter starts its search.
-
-    *   `[ ]` src/base/bittorrent/`torrentimpl.h`
-        *   `[ ]` In `private`, after `void reload();`, add `void stop(bool cancelPendingFindLocationStart);`. Do not change the public `void stop() override;` or `void start(TorrentOperatingMode mode = TorrentOperatingMode::AutoManaged) override;` declarations.
-
-    *   `[ ]` src/base/bittorrent/`torrentimpl.cpp`
-        *   `[ ]` Replace the current `TorrentImpl::stop()` body with `stop(true);`. Define `TorrentImpl::stop(const bool cancelPendingFindLocationStart)` immediately after it. At the top of that overload, when the argument is true, call `m_session->cancelFindLocationStart(this);`; after that call, copy the former public `stop()` body without changing its statements or order.
-        *   `[ ]` In `TorrentImpl::handleTorrentChecked()`, change only the `stop();` under `if (stopCondition() == StopCondition::FilesChecked)` to `stop(false);`. This preserves the existing stop-after-check behavior without cancelling the feature entry immediately before `SessionImpl::handleTorrentChecked()` consumes it.
-        *   `[ ]` In `TorrentImpl::start(const TorrentOperatingMode mode)`, leave the existing `hasError()` block and `m_operatingMode = mode;` unchanged. Immediately after `m_operatingMode = mode;` and before `if (m_hasMissingFiles)`, insert `if (m_session->interceptFindLocationStart(this, mode))` followed by `return;`. Do not move or rewrite the missing-files, stopped-state, auto-managed or forced-resume blocks.
-
-    *   `[ ]` src/base/bittorrent/`session.h`
-        *   `[ ]` After `virtual void setFindLocationOnAddEnabled(bool enabled) = 0;`, add in order `virtual bool isFindLocationOnStartEnabled() const = 0;`, `virtual void setFindLocationOnStartEnabled(bool enabled) = 0;`, `virtual bool isFindLocationRecheckEnabled() const = 0;`, `virtual void setFindLocationRecheckEnabled(bool enabled) = 0;`, `virtual bool isFindLocationSeedEnabled() const = 0;`, `virtual void setFindLocationSeedEnabled(bool enabled) = 0;`, `virtual bool isFindLocationLeechEnabled() const = 0;` and `virtual void setFindLocationLeechEnabled(bool enabled) = 0;`.
-        *   `[ ]` After `virtual void bottomTorrentsQueuePos(const QList<TorrentID> &ids) = 0;`, add `virtual void findTorrentLocation(const TorrentID &id) = 0;` then `virtual void assignTorrentLocation(const TorrentID &id, const Path &location) = 0;`.
-        *   `[ ]` In `signals`, after `void torrentFinishedChecking(Torrent *torrent);`, add `void torrentLocationFound(const TorrentID &id, const Path &location, bool found);`.
-
-    *   `[ ]` src/base/bittorrent/`sessionimpl.h`
-        *   `[ ]` After `struct FileSearchResult;`, add `struct SearchRootsResult;`.
-        *   `[ ]` After `void setFindLocationOnAddEnabled(bool enabled) override;`, add in order `bool isFindLocationOnStartEnabled() const override;`, `void setFindLocationOnStartEnabled(bool enabled) override;`, `bool isFindLocationRecheckEnabled() const override;`, `void setFindLocationRecheckEnabled(bool enabled) override;`, `bool isFindLocationSeedEnabled() const override;`, `void setFindLocationSeedEnabled(bool enabled) override;`, `bool isFindLocationLeechEnabled() const override;` and `void setFindLocationLeechEnabled(bool enabled) override;`.
-        *   `[ ]` After `void bottomTorrentsQueuePos(const QList<TorrentID> &ids) override;`, add `void findTorrentLocation(const TorrentID &id) override;` then `void assignTorrentLocation(const TorrentID &id, const Path &location) override;`.
-        *   `[ ]` In the public `// Torrent interface` block, immediately before `handleTorrentResumeDataRequested`, add `bool interceptFindLocationStart(TorrentImpl *torrent, TorrentOperatingMode mode);` and `void cancelFindLocationStart(TorrentImpl *torrent);`. These are concrete `SessionImpl` hooks used only by `TorrentImpl`; do not add them to `Session`.
-        *   `[ ]` In the `private` section, after `void handleTorrentFinishedAlert(const lt::torrent_finished_alert *alert);`, add `QFuture<SearchRootsResult> searchExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName);`.
-        *   `[ ]` After `searchExistingContent()`, declare, in order, `void searchStartedTorrentLocation(TorrentImpl *torrent, quint64 token);`, `void assignStartedTorrentLocation(TorrentImpl *torrent, const Path &location);`, `void forceLocationAssignmentRecheck(TorrentImpl *torrent);`, `void releaseFindLocationStart(TorrentImpl *torrent, bool matched);` and `void failFindLocationStart(TorrentImpl *torrent, const QString &phase, const QString &reason);`.
-        *   `[ ]` After `CachedSettingValue<bool> m_isFindLocationOnAddEnabled;`, add `CachedSettingValue<bool> m_isFindLocationOnStartEnabled;`, `CachedSettingValue<bool> m_isFindLocationRecheckEnabled;`, `CachedSettingValue<bool> m_isFindLocationSeedEnabled;` and `CachedSettingValue<bool> m_isFindLocationLeechEnabled;` in that order.
-        *   `[ ]` Immediately before `struct MoveStorageJob`, add `enum class LocationAssignmentPhase { WaitingForMetadata, Searching, WaitingForMove, WaitingForCheck };`, `enum class LocationStartPass { None, MetadataOnly, Recheck, Terminal };`, then `struct LocationAssignmentState { Path location; LocationAssignmentPhase phase = LocationAssignmentPhase::Searching; std::optional<TorrentOperatingMode> startMode; LocationStartPass startPass = LocationStartPass::None; quint64 token = 0; };`. Keep one declaration per line in the actual header.
-        *   `[ ]` After `PathList m_watchedFolderSavePaths;`, add `QHash<TorrentID, LocationAssignmentState> m_locationAssignments;` and `quint64 m_nextLocationAssignmentToken = 0;`.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Settings: initialise, in order, `m_isFindLocationOnStartEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/OnStartEnabled"_s), true)`, `m_isFindLocationRecheckEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/RecheckEnabled"_s), true)`, `m_isFindLocationSeedEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/SeedEnabled"_s), true)` and `m_isFindLocationLeechEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/LeechEnabled"_s), true)`. Each getter returns its named member. Each setter returns when its argument equals that getter and otherwise assigns the argument only to the named member.
-        *   `[ ]` `searchExistingContent()` carries what `findExistingContent()` performs while both settings hold, as the first epic's `sessionimpl` node specifies: the name form's name `nameFormName`; `searchRoots` built from `m_watchedFolderSavePaths`; `candidateRoots(torrentSavePath, torrentDownloadPath, searchRoots, savePath(), nameFormName, sourceFileName)` as `candidates`; `const bool appendExtension = isAppendExtensionEnabled();` read on the calling thread; `m_fileSearcher->searchRoots(filePaths, torrentSavePath, torrentDownloadPath, candidates, appendExtension, promise)` dispatched onto the I/O thread; and the continuation logging the outcome. Its continuation returns the `SearchRootsResult` unchanged, and it returns that continuation's future.
-        *   `[ ]` `findExistingContent()` with either setting off returns `findIncompleteFiles(torrentSavePath, torrentDownloadPath, filePaths)`; with both on it returns `searchExistingContent(torrentSavePath, torrentDownloadPath, filePaths, torrentName, sourceFileName).then(this, ...)`, whose continuation returns `FileSearchResult {.savePath = result.savePath, .fileNames = result.fileNames}`.
-        *   `[ ]` `findTorrentLocation(id)` with no torrent in `m_torrents` under `id`, or a torrent without metadata → `emit torrentLocationFound(id, {}, false)`.
-        *   `[ ]` `findTorrentLocation(id)` with a torrent holding metadata → `searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {})`, continued with `.then(this, ...)` into `emit torrentLocationFound(id, result.savePath, ((result.matchCount > 0) || result.foundAtOwnPath))`.
-        *   `[ ]` `interceptFindLocationStart(torrent, mode)` first looks up `torrent->id()`. If the entry has a non-`None` `startPass`, save the pass, set it to `None`, erase the entry only when the saved pass is `Terminal`, and return `false`; this is the only bypass of interception.
-        *   `[ ]` With no pass and an existing entry whose `startMode` is present, set `entry.startMode = mode` and return `true` before testing stopped or checking state. Do not change its phase, target or token and issue no work; this is the repeated-Start coalescing branch during every transaction phase, including the internally running feature recheck.
-        *   `[ ]` Otherwise return `false` when `!isFindLocationEnabled()`, `!isFindLocationOnStartEnabled()`, `!torrent->isStopped()`, `torrent->isAutoTMMEnabled()` or `torrent->isChecking()`. No state is created or changed in these branches, so the remainder of the existing `TorrentImpl::start()` executes unchanged. When an eligible manual-assignment entry exists without `startMode`, set `startMode = mode` and return `true` without changing that entry's phase, target or token.
-        *   `[ ]` With an eligible torrent and no entry, increment `m_nextLocationAssignmentToken`, insert a state with `startMode = mode` and that token, and hold the outer Start by returning `true`. If `torrent->hasMetadata()`, set `phase = Searching` and call `searchStartedTorrentLocation(torrent, token)`. Otherwise set `phase = WaitingForMetadata`, set `startPass = MetadataOnly`, call `torrent->start(mode)`, then call `torrent->setStopCondition(Torrent::StopCondition::MetadataReceived)`; the nested Start consumes the pass and only the existing metadata-acquisition path runs.
-        *   `[ ]` `searchStartedTorrentLocation(torrent, token)` copies `const TorrentID id = torrent->id()` and calls `searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {})`. Its success continuation captures only `id` and `token`, obtains `TorrentImpl *const currentTorrent = m_torrents.value(id)`, and returns unless that pointer is non-null and the map contains `id` with the same token, `phase == Searching` and a `startMode`.
-        *   `[ ]` In that valid continuation, `const bool found = result.foundAtOwnPath || (result.matchCount > 0);`. A false value calls `releaseFindLocationStart(currentTorrent, false)`. A true value stores `result.savePath` in the entry and calls `assignStartedTorrentLocation(currentTorrent, result.savePath)`. On the future returned by that `then(this, ...)`, attach a no-argument `onFailed(this, ...)` capturing only `id` and `token`; repeat the pointer, token, phase and Start-intent validation, then call `failFindLocationStart(currentTorrent, u"search"_s, tr("the asynchronous search did not complete"))`.
-        *   `[ ]` `assignStartedTorrentLocation(torrent, location)` never copies payload data itself. If `torrent->actualStorageLocation() == location`, call `forceLocationAssignmentRecheck(torrent)`. Otherwise call `torrent->setAutoTMMEnabled(false)`. When `location != torrent->savePath()`, next call `torrent->setSavePath(location)`. If `!torrent->isFinished() && !torrent->downloadPath().isEmpty() && (torrent->actualStorageLocation() != location)` after that call, call `torrent->setDownloadPath({})`; this makes the newly recorded save path the active storage location through the existing `ChangeDownloadPath` move. Then set `phase = WaitingForMove` when `torrent->isMoving()`; if `!torrent->isMoving()` and the actual location equals the target, call `forceLocationAssignmentRecheck(torrent)`; otherwise call `failFindLocationStart(torrent, u"assignment"_s, tr("the selected location did not become the torrent's storage location"))`.
-        *   `[ ]` `assignTorrentLocation(id, location)` with an entry for `id` in `m_locationAssignments` recording the same `location` → return. An entry for `id` recording a different location → erase it and continue.
-        *   `[ ]` `assignTorrentLocation(id, location)` with no torrent in `m_torrents` under `id`, a torrent without metadata, `location == torrent->savePath()` or `location == torrent->downloadPath()` → return.
-        *   `[ ]` `assignTorrentLocation(id, location)` with a torrent holding metadata → `torrent->setAutoTMMEnabled(false)`, then `torrent->setSavePath(location)`.
-        *   `[ ]` For manual assignment, call `torrent->stop()` before inserting a new map entry. With `isFindLocationRecheckEnabled()` false, return after the two location calls. With it true and `torrent->isMoving()`, insert `{.location = location, .phase = LocationAssignmentPhase::WaitingForMove}`. With it true, `!torrent->isMoving()` and `torrent->actualStorageLocation() != location`, return without a recheck as the pre-existing incomplete-download-path rule requires. Otherwise insert `{.location = location, .phase = LocationAssignmentPhase::WaitingForCheck}`, then call `forceLocationAssignmentRecheck(torrent)`.
-        *   `[ ]` `forceLocationAssignmentRecheck(torrent)`: require an existing entry; set its phase to `WaitingForCheck` and its `startPass` to `Recheck`, then call `torrent->forceRecheck()`. The internal `start()` consumes `Recheck`, retains the entry and follows the unchanged Start body. This function is used for both manual assignment and pending Start, so neither can recursively start a second search.
-        *   `[ ]` `handleTorrentStorageMovingStateChanged(torrent)`: after `emit torrentsUpdated({torrent});`, return unless the entry is `WaitingForMove` and `!torrent->isMoving()`. When settled at `state.location`, call `forceLocationAssignmentRecheck(torrent)`. On a different actual location, call `failFindLocationStart(torrent, u"movement"_s, tr("the storage move did not reach the selected location"))` if `startMode` is present; otherwise erase the manual-assignment entry.
-        *   `[ ]` `handleTorrentChecked(torrent)`: before `emit torrentFinishedChecking(torrent);`, return from feature handling unless the entry is `WaitingForCheck`. For an entry with Start intent, `torrent->hasError()` calls `failFindLocationStart(torrent, u"recheck"_s, torrent->error())`; movement or actual-location mismatch calls it with `u"recheck"_s` and `tr("the completed check did not report the selected location")`. Otherwise call `releaseFindLocationStart(torrent, true)`. For an entry without Start intent, erase it on error or location mismatch; otherwise start in `TorrentOperatingMode::AutoManaged` only under the existing complete/Seed or incomplete/Leech decisions, arming `LocationStartPass::Terminal` before that `start()` call, and erase it without starting when neither decision holds.
-        *   `[ ]` `releaseFindLocationStart(torrent, matched)`: copy the required `startMode`; set the entry's `startPass = Terminal`; log exactly one INFO outcome, `Find location Start continued after a match. Torrent: "%1". Location: "%2"` when `matched` or `Find location Start continued after no match. Torrent: "%1"` otherwise; then call `torrent->start(copiedMode)`. The nested interceptor consumes `Terminal`, erases the entry and lets the unchanged Start body execute once.
-        *   `[ ]` `cancelFindLocationStart(torrent)`: when the entry exists and has `startMode`, erase it and log `Find location Start cancelled. Torrent: "%1"` at INFO; otherwise do nothing. Because public `stop()` calls this even for an already stopped torrent, Stop cancels searching and waiting-for-metadata states too.
-        *   `[ ]` `failFindLocationStart(torrent, phase, reason)`: when the entry has no `startMode`, erase it and return. Otherwise erase it first, log `Find location Start failed. Torrent: "%1". Phase: %2. Reason: "%3"` at WARNING, then call public `torrent->stop()`. Erasing first prevents that Stop's cancellation hook from producing a second terminal log and clears `StopCondition::FilesChecked` through the existing stop body when the failed feature recheck had internally started the torrent.
-        *   `[ ]` `handleTorrentMetadataReceived(torrent)`: immediately after `emit torrentMetadataReceived(torrent);` and before the torrent-backup early return, find the entry. Only `WaitingForMetadata` with a `startMode` advances: set `phase = Searching` and call `searchStartedTorrentLocation(torrent, state.token)`.
-        *   `[ ]` `handleTorrentInfoHashChanged(torrent, prevInfoHash)`: inside `if (currentID != prevID)`, after re-keying `m_torrents` and `m_changedTorrentIDs`, find `prevID` in `m_locationAssignments`; when present, move its value to `currentID` and erase the old key. No other phase changes.
-        *   `[ ]` `handleFileErrorAlert()`: immediately after `torrent->handleFileError(...)`, define `const QString errorMessage = QString::fromStdString(alert->message());`; use `errorMessage` in the existing log and `torrentIOError` emission instead of the block-local `msg`. After `m_recentErroredTorrentsTimer->start();`, if the entry is `WaitingForCheck` with Start intent, call `failFindLocationStart(torrent, u"recheck"_s, errorMessage)`.
-        *   `[ ]` `handleSaveResumeDataFailedAlert()`: inside the existing `alert->error != lt::errors::resume_data_not_modified` block, materialize the same error text the existing version-specific log expression uses as `const QString errorMessage`; retain the existing CRITICAL log with that variable, then call `failFindLocationStart(torrent, u"metadata"_s, errorMessage)` only for a `WaitingForMetadata` entry with Start intent.
-        *   `[ ]` `handleStorageMovedFailedAlert()`: after the existing WARNING log and before `handleMoveTorrentStorageJobFinished(currentLocation)`, call `failFindLocationStart(torrent, u"movement"_s, errorMessage)` only when `torrent` is non-null and its entry is `WaitingForMove` with Start intent. Manual entries retain the existing logging and are erased when `handleMoveTorrentStorageJobFinished(currentLocation)` reaches the guarded movement callback with the mismatched path.
-        *   `[ ]` `removeTorrent(id, deleteOption)`: after `const TorrentID torrentID = torrent->id();`, call `cancelFindLocationStart(torrent);` then `m_locationAssignments.remove(torrentID)`. The first call supplies the pending Start's terminal cancellation log; the second also removes a manual-assignment entry.
-        *   `[ ]` `SessionImpl::~SessionImpl()`: before `m_nativeSession->pause();`, iterate the entries with `startMode`, obtain each still-live torrent from `m_torrents`, and log `Find location Start cancelled. Torrent: "%1"` at INFO once for each; then call `m_locationAssignments.clear();`. Leave the existing native-session pause, saving, worker draining and teardown sequence unchanged. Search continuations are context-bound to `this` and their ID/token guard makes results already queued before teardown inert.
-
-    *   `[ ]` src/base/bittorrent/`sessionimpl.cpp`
-        *   `[ ]` In the constructor's initialiser list, after `m_isFindLocationOnAddEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/OnAddEnabled"_s), true)`, add the four complete initializers written in `interaction.spec`, in OnStart, recheck, seed and leech order.
-        *   `[ ]` After `SessionImpl::setFindLocationOnAddEnabled()`, define `isFindLocationOnStartEnabled()`/`setFindLocationOnStartEnabled()`, `isFindLocationRecheckEnabled()`/`setFindLocationRecheckEnabled()`, `isFindLocationSeedEnabled()`/`setFindLocationSeedEnabled()` and `isFindLocationLeechEnabled()`/`setFindLocationLeechEnabled()` in that order. Each getter returns its same-named cached member; each setter takes `const bool enabled`, returns when `enabled == getter()`, and otherwise assigns `enabled` to that member.
-        *   `[ ]` After `SessionImpl::findExistingContent()`, define `SessionImpl::searchExistingContent()`, moving into it the enabled branch of `findExistingContent()` per the interaction spec, and reduce `findExistingContent()` to its two branches per the interaction spec.
-        *   `[ ]` After `SessionImpl::bottomTorrentsQueuePos()`, define `SessionImpl::findTorrentLocation()`, `SessionImpl::assignTorrentLocation()` and `SessionImpl::forceLocationAssignmentRecheck()` per the interaction spec, each public operation finding its torrent through `m_torrents.value(id)`.
-        *   `[ ]` Define the five private transaction helpers after the three public location operations. Extend `handleTorrentMetadataReceived()`, `handleTorrentInfoHashChanged()`, `handleTorrentStorageMovingStateChanged()`, `handleTorrentChecked()`, the three named failure handlers, `removeTorrent()` and `~SessionImpl()` at the exact anchors and with the exact guards above.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `sessionimpl` depends on `filesearcher` and `torrentimpl` beside it and on `settingvalue` beneath it, through includes it already carries. `src/gui` reaches it only through `Session`; `TorrentImpl` already holds `SessionImpl *const m_session` and adds only the two concrete calls named above. No GUI or WebUI type enters `src/base`, and no new component owns torrent lifecycle state.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` ST-1, ST-3, ST-9, CN-5: the eight Epic 2 accessors exist on `Session`; their four separate `FindLocation/...Enabled` keys default to `true`; no existing key, resume datum or save path is renamed or re-read.
-        *   `[ ]` IF-11: `findTorrentLocation()` and `assignTorrentLocation()` are declared on `Session`.
-        *   `[ ]` IF-13: `findTorrentLocation()` returns `void` and reports one torrent's outcome through `torrentLocationFound`, emitted as that torrent's search completes.
-        *   `[ ]` CR-9: `findExistingContent()` and `findTorrentLocation()` both compose through `searchExistingContent()`.
-        *   `[ ]` AS-1: `setAutoTMMEnabled(false)` precedes `setSavePath()`.
-        *   `[ ]` AS-2: for assignment without pending Start, `forceRecheck()` is issued only when `isFindLocationRecheckEnabled()` holds; for pending Start it is mandatory. Both paths issue it only at the target actual location.
-        *   `[ ]` AS-3: assignment invokes the existing torrent location operations without changing their implementations or the move queue, and a failed move erases the feature state without rechecking the prior location.
-        *   `[ ]` AS-4, AS-8: the start decision is taken in `handleTorrentChecked()` only for a `WaitingForCheck` state installed immediately before the feature's own `forceRecheck()`, keyed by `TorrentID` and carrying the assigned location.
-        *   `[ ]` AS-5, AS-6, AS-7: `start()` is called in its default auto-managed mode, under **Seed automatically** for complete content and **Leech automatically** for incomplete content.
-        *   `[ ]` TX-1, TX-2: the sole Start insertion is after error clearing and mode recording and before missing-files reload or stopped-state changes; every disabled and ineligible branch returns false without state, and an eligible outer Start returns before the original body can perform payload work.
-        *   `[ ]` TX-3, TX-4, TX-5: a match reaches release only from `handleTorrentChecked()` in `WaitingForCheck`; a miss reaches release only from the successful search continuation; both use the saved explicit mode through `LocationStartPass::Terminal`.
-        *   `[ ]` TX-6: an entry and token are created once; another eligible Start changes only `startMode`; the `MetadataOnly`, `Recheck` and `Terminal` passes identify all feature-owned recursive Start calls and are consumed once.
-        *   `[ ]` TX-7, TX-8: public Stop, removal, teardown, stale-token search results and the named failure hooks cannot release the pending Start; the recheck error path erases before ordinary Stop and accepts only `handleTorrentChecked()` as success.
-        *   `[ ]` LG-4: exactly one terminal transaction log is emitted by release, cancellation or failure; stale callbacks emit none.
-        *   `[ ]` PS-10, CN-7: the location is kept at any completion, no threshold is applied, and starting and checking pass through the session's queueing and `MaxActiveCheckingTorrents` limits.
-        *   `[ ]` RL-3, RL-4, RL-6: discovery probes on `m_fileSearcher`'s thread, `findTorrentLocation()` returns before the probe completes, and discovery itself creates, moves, renames and deletes nothing.
-        *   `[ ]` LG-1, LG-2: `searchExistingContent()` logs as the first epic's `sessionimpl` node specifies, from both call sites.
-        *   `[ ]` `SessionImpl` cannot be constructed in a `qbt_base` test without a new application-session fixture. Verify every branch above through the individually enumerated Epic 2 integration scenarios at the commit boundary; do not add a test-only session abstraction in this submission.
-
-*   `[ ]` [UI] src/gui/`unmatchedtorrentsdialog` — add `UnmatchedTorrentsDialog`, listing torrents that matched nothing and walking them one at a time into a **Choose save path** dialog that assigns each chosen location through `Session::assignTorrentLocation()`, or closing to abandon the rest. T14
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: a batch that matches nothing for several torrents would otherwise open one file dialog per torrent in succession, with no way to see the set, choose the order, or stop.
-        *   `[ ]` Functional: list the unmatched torrents by name; for the selected entry, open a directory dialog starting at its save path, and on an existing directory assign that location and remove the entry; close once no entry remains.
-        *   `[ ]` Functional: closing the dialog abandons the remaining entries, assigning nothing further.
-        *   `[ ]` Non-functional: every string is translatable, and the list and its buttons are reachable and operable by keyboard.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/gui`, a window-modal dialog opened with `open()` by the `transferlistwidget` node.
-        *   `[ ]` Out of scope: discovery, assignment and the start decision, which the `sessionimpl` node performs behind `assignTorrentLocation()`; deciding which torrents are unmatched.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the list of unmatched torrent IDs, their rows, the directory dialog and the hand-off of a chosen location. Outside: what assignment does.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/bittorrent/session.h` — `BitTorrent::Session::instance()`, `Session::getTorrent()`, `Session::assignTorrentLocation()` and the existing `torrentAboutToBeRemoved` signal. A lower layer, depended on inward.
-        *   `[ ]` `base/bittorrent/torrent.h` — `Torrent::name()` and `Torrent::savePath()`.
-        *   `[ ]` `base/bittorrent/infohash.h` — `BitTorrent::TorrentID`.
-        *   `[ ]` `base/path.h` — `Path`, `Path::exists()` and `Path::data()`.
-        *   `[ ]` `ui_unmatchedtorrentsdialog.h` — generated from `unmatchedtorrentsdialog.ui`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `TransferListWidget::setSelectedTorrentsLocation()` is the model for the directory dialog: a heap `QFileDialog` titled `tr("Choose save path")` with `Qt::WA_DeleteOnClose`, `QFileDialog::Directory`, `QFileDialog::DontConfirmOverwrite | QFileDialog::ShowDirsOnly | QFileDialog::HideNameFilterDetails`, `&QDialog::accepted` reading `selectedFiles().constFirst()` into a `Path` that must exist, and `open()`. `TorrentCategoryDialog` is the model for the class: a forward-declared `Ui` class, a raw `m_ui` created in the constructor's initialiser list and deleted in the destructor, and the generated header included by the `.cpp`.
-
-    *   `[ ]` src/gui/`unmatchedtorrentsdialog.h`
-        *   `[ ]` New file: the licence header of `torrentcategorydialog.h` naming the contributor, `#pragma once`, `#include <QDialog>`, `#include <QList>` and `#include "base/bittorrent/infohash.h"`, then `namespace Ui { class UnmatchedTorrentsDialog; }`.
-        *   `[ ]` `class UnmatchedTorrentsDialog final : public QDialog` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(UnmatchedTorrentsDialog)`, declaring public `UnmatchedTorrentsDialog(QWidget *parent, const QList<BitTorrent::TorrentID> &torrentIDs);`, `~UnmatchedTorrentsDialog() override;` and `bool isEmpty() const;`, private `void setCurrentTorrentLocation();` and `void removeTorrent(const BitTorrent::TorrentID &id);`, and private members `Ui::UnmatchedTorrentsDialog *m_ui = nullptr;` and `QList<BitTorrent::TorrentID> m_torrentIDs;`.
-
-    *   `[ ]` src/gui/`unmatchedtorrentsdialog.ui`
-        *   `[ ]` New file in the form of `deletionconfirmationdialog.ui`: class `UnmatchedTorrentsDialog`, a `QDialog` named `UnmatchedTorrentsDialog` with `windowTitle` `Find location`, laid out by a `QVBoxLayout` named `verticalLayout` holding three items in order.
-        *   `[ ]` A `QLabel` named `labelUnmatched` with `text` `No existing content was found for these torrents. Set a location for each, or close to leave them where they are.` and `wordWrap` `true`.
-        *   `[ ]` A `QListWidget` named `listTorrents`.
-        *   `[ ]` A `QDialogButtonBox` named `buttonBox` with `orientation` `Qt::Orientation::Horizontal` and `standardButtons` `QDialogButtonBox::StandardButton::Close`.
-
-    *   `[ ]` `construction`
-        *   `[ ]` The constructor takes the parent and the unmatched IDs and leaves the dialog complete: every row populated, the first row current, and every connection made. The caller sets `Qt::WA_DeleteOnClose` and calls `open()`.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Constructor: `m_ui->setupUi(this)`; for each ID in order, `BitTorrent::Session::instance()->getTorrent(id)` non-null → append the ID to `m_torrentIDs` and add a row to `listTorrents` holding `torrent->name()`; null → skip it. Then `listTorrents->setCurrentRow(0)`.
-        *   `[ ]` Constructor: store `m_ui->buttonBox->addButton(tr("Set location..."), QDialogButtonBox::ActionRole)` in a local `QPushButton *setLocationButton`; connect its `&QAbstractButton::clicked` to `setCurrentTorrentLocation`, `&QListWidget::itemDoubleClicked` to `setCurrentTorrentLocation`, and `&QDialogButtonBox::rejected` to `&QDialog::reject`. Connect `&QListWidget::currentRowChanged` to a lambda with `this` as its context that sets `setLocationButton` enabled exactly when the row is at least 0, then set its initial enabled state from `listTorrents->currentRow()`.
-        *   `[ ]` Constructor: connect `BitTorrent::Session::torrentAboutToBeRemoved` to a lambda with `this` as its context that calls `removeTorrent(torrent->id())`. This removes a live dialog row before its torrent becomes invalid and closes the dialog when that was its final row.
-        *   `[ ]` `isEmpty()` returns `m_torrentIDs.isEmpty()`.
-        *   `[ ]` `setCurrentTorrentLocation()`: `currentRow()` below 0 → return. The ID at that row with no torrent under it in the session → `removeTorrent(id)` and return. Otherwise open the directory dialog per the context slice, starting at `torrent->savePath().data()`.
-        *   `[ ]` Connect the directory dialog's `&QDialog::accepted` signal with `this` as the context and capture the dialog pointer and ID. In the handler, the selected `Path` does not exist → return, the entry kept. It exists and `m_torrentIDs` still holds the ID → `BitTorrent::Session::instance()->assignTorrentLocation(id, newLocation)` then `removeTorrent(id)`.
-        *   `[ ]` `removeTorrent(id)`: `m_torrentIDs.indexOf(id)` below 0 → return. Otherwise remove and delete that row from `listTorrents` with `takeItem()`, remove the ID from `m_torrentIDs`, and call `accept()` when the list becomes empty.
-        *   `[ ]` `&QDialog::rejected`, from **Close**, the window's close control or Escape, closes the dialog with no further assignment.
-
-    *   `[ ]` src/gui/`unmatchedtorrentsdialog.cpp`
-        *   `[ ]` New file: the licence header of `torrentcategorydialog.cpp` naming the contributor, `#include "unmatchedtorrentsdialog.h"`, then `#include <QFileDialog>`, `#include <QListWidget>` and `#include <QPushButton>`, then `#include "base/bittorrent/session.h"`, `#include "base/bittorrent/torrent.h"`, `#include "base/path.h"` and `#include "ui_unmatchedtorrentsdialog.h"`.
-        *   `[ ]` Define the constructor, the destructor deleting `m_ui`, `isEmpty()`, `setCurrentTorrentLocation()` and `removeTorrent()` per the interaction spec.
-
-    *   `[ ]` src/gui/`CMakeLists.txt`
-        *   `[ ]` Add `unmatchedtorrentsdialog.ui` to `qt_wrap_ui(UI_HEADERS ...)` after `uithemedialog.ui`, `unmatchedtorrentsdialog.h` to the headers of `add_library(qbt_gui ...)` after `uithemesource.h`, and `unmatchedtorrentsdialog.cpp` to its sources after `uithemesource.cpp`.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `unmatchedtorrentsdialog` in `src/gui` depends downward on `session`, `torrent` and `path` in `src/base`. Only `transferlistwidget` depends on it.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-9: unmatched torrents are presented as a list the user walks one entry at a time or abandons with **Close**.
-        *   `[ ]` IF-11: the dialog assigns through `Session::assignTorrentLocation()`.
-        *   `[ ]` IF-12: `uic` routes the `.ui` strings through `tr()`, and the button text is wrapped in `tr()`.
-        *   `[ ]` BT-2: the three files are registered in `src/gui/CMakeLists.txt`.
-        *   `[ ]` `listTorrents` activates a row with a double click, and every control, including the **Set location...** button, is reachable by Tab.
-        *   `[ ]` No empty dialog is opened or left open: the transfer-list node filters removed torrents before choosing the fallback and deletes a newly constructed `UnmatchedTorrentsDialog` without opening it when `isEmpty()` is true; the dialog removes a row on `torrentAboutToBeRemoved` and accepts itself when no row remains.
-        *   `[ ]` Verify the dialog through Epic 2 integration scenario 5 at the commit boundary.
-
-*   `[ ]` [UI] src/gui/`transferlistwidget` — add **Find location** beside **Set location...** while the **Find location** group is enabled, run `Session::findTorrentLocation()` for each selected torrent holding metadata, assign each match through `Session::assignTorrentLocation()` as its outcome arrives, and, once every outcome has arrived, open **Choose save path** for a single miss or `UnmatchedTorrentsDialog` for several. T13, T14
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: a torrent already in the session reaches discovery only through the add path, so a user holding torrents placed at the wrong location repairs each by hand.
-        *   `[ ]` Functional: a context menu action over one or many selected torrents that runs discovery for each torrent holding metadata and assigns every location found, as each outcome arrives.
-        *   `[ ]` Functional: while an operation is active, another invocation adds only previously unseen torrent IDs to it; an ID already pending, matched or unmatched is not searched again. Once no submitted torrent remains pending, one valid torrent without a match opens the **Choose save path** dialog for it, more than one opens `UnmatchedTorrentsDialog`, and zero opens nothing.
-        *   `[ ]` Non-functional: the transfer list stays interactive while outcomes arrive; the action is absent while the **Find location** group is disabled.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/gui`, the transfer list and its context menu.
-        *   `[ ]` Out of scope: discovery, assignment, rechecking and the start decision, which are the `sessionimpl` node; the unmatched list, which is the `unmatchedtorrentsdialog` node.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the action, one operation map holding each submitted torrent's result state, merging another invocation into that operation, and dispatching misses. Outside: how a location is found and what assignment does.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/bittorrent/session.h` — `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, `Session::getTorrent()` and the `torrentLocationFound` signal, from the `sessionimpl` node. Already included by `transferlistwidget.cpp`.
-        *   `[ ]` `unmatchedtorrentsdialog.h` — `UnmatchedTorrentsDialog`, from the `unmatchedtorrentsdialog` node.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `TransferListWidget::displayListMenu()` constructs every action before deciding which to add, computing `oneHasMetadata` over the selection, and adds `actionSetTorrentPath` after the separator that follows `actionDelete`. `setSelectedTorrentsLocation()` is the model for the directory dialog. The mnemonic letters of the menu's other top-level entries leave `i` free.
-
-    *   `[ ]` src/gui/`transferlistwidget.h`
-        *   `[ ]` Add `#include <QHash>` after `#include <QtContainerFwd>`.
-        *   `[ ]` In `public slots`, after `void setSelectedTorrentsLocation();`, add `void findSelectedTorrentsLocation();`.
-        *   `[ ]` In the `private` section, after `void exportTorrent();`, add `void handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, bool found);` and `void askTorrentLocation(const BitTorrent::TorrentID &id);`.
-        *   `[ ]` Find the `private:` label directly above `void dragEnterEvent(QDragEnterEvent *event) override;`. On the line directly after that label, insert `enum class FindLocationState { Pending, Matched, Unmatched };`, followed by one blank line. The existing declarations follow unchanged.
-        *   `[ ]` After `TransferListSortModel *m_sortFilterModel = nullptr;`, add `QHash<BitTorrent::TorrentID, FindLocationState> m_findLocationOperation;`. An empty map is no active operation; non-empty states remain in the map until that operation finalises.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Constructor: after the `sortIndicatorChanged` connection, `connect(BitTorrent::Session::instance(), &BitTorrent::Session::torrentLocationFound, this, &TransferListWidget::handleTorrentLocationFound);`.
-        *   `[ ]` `displayListMenu()`: `actionFindLocation` is a `QAction` with `UIThemeManager::instance()->getIcon(u"edit-find"_s)` and `tr("F&ind location")`, constructed after `actionSetTorrentPath` and connected to `findSelectedTorrentsLocation`. After `listMenu->addAction(actionSetTorrentPath);`, `oneHasMetadata` true and `BitTorrent::Session::instance()->isFindLocationEnabled()` true → `listMenu->addAction(actionFindLocation)`; otherwise it is not added.
-        *   `[ ]` `findSelectedTorrentsLocation()`: create a local `QList<TorrentID> submitted`. In a first pass over `getSelectedTorrents()`, no metadata → skip; its ID already in `m_findLocationOperation` → skip; otherwise insert the ID into `m_findLocationOperation` with `FindLocationState::Pending` and append it to `submitted`. In a second pass over `submitted`, call `BitTorrent::Session::instance()->findTorrentLocation(id)` for each ID. Register the complete invocation before the first call so a synchronous invalid-torrent outcome cannot finalise and clear the operation while later IDs from the same invocation remain unregistered. A call made while the map is non-empty adds its unseen IDs to that operation.
-        *   `[ ]` `handleTorrentLocationFound(id, location, found)`: no map entry for `id`, or its state is not `Pending` → return. `found` true → set the state to `Matched` then call `BitTorrent::Session::instance()->assignTorrentLocation(id, location)`; `found` false → set the state to `Unmatched`.
-        *   `[ ]` If any mapped state remains `Pending`, return. Otherwise build `QList<TorrentID> unmatched` from the entries whose state is `Unmatched` and whose torrent still exists in the session, then clear `m_findLocationOperation`. Zero unmatched entries → return. One → call `askTorrentLocation()` for it. More than one → construct `UnmatchedTorrentsDialog(this, unmatched)`; `dialog->isEmpty()` true → delete it and return; otherwise set `Qt::WA_DeleteOnClose` and call `open()`.
-        *   `[ ]` `askTorrentLocation(id)`: no torrent under `id` in the session → return. Otherwise create the directory dialog of `setSelectedTorrentsLocation()`, starting at that torrent's `savePath().data()`. Connect its `&QDialog::accepted` signal with `this` as the context and capture the dialog pointer and ID; on an existing selected `Path`, call `BitTorrent::Session::instance()->assignTorrentLocation(id, newLocation)`.
-
-    *   `[ ]` src/gui/`transferlistwidget.cpp`
-        *   `[ ]` Add `#include "unmatchedtorrentsdialog.h"` after `#include "uithememanager.h"`.
-        *   `[ ]` Add the constructor connection and the `displayListMenu()` action per the interaction spec.
-        *   `[ ]` Define `TransferListWidget::findSelectedTorrentsLocation()` after `TransferListWidget::setSelectedTorrentsLocation()`, and `handleTorrentLocationFound()` and `askTorrentLocation()` after it, per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `transferlistwidget` depends downward on `Session` in `src/base`, as it already does, and beside it on `unmatchedtorrentsdialog`. It never names `SessionImpl`; its pre-existing uses of `Preferences` are unchanged.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-7: **Find location** sits directly after **Set location...** over single and multiple selections.
-        *   `[ ]` IF-8: a single torrent without a match opens the **Choose save path** dialog that **Set location...** opens.
-        *   `[ ]` IF-9: several torrents without a match open `UnmatchedTorrentsDialog`.
-        *   `[ ]` IF-11: every call reaches discovery and assignment through `BitTorrent::Session`.
-        *   `[ ]` IF-13: each match is assigned as its own outcome arrives, before the batch completes.
-        *   `[ ]` Repeated invocations during an active operation merge unseen IDs into it; an ID already marked `Pending`, `Matched` or `Unmatched` is not searched twice in that operation.
-        *   `[ ]` ST-2: the action is absent while `isFindLocationEnabled()` is false.
-        *   `[ ]` IF-12: the action text is wrapped in `tr()`.
-        *   `[ ]` Verify the action through Epic 2 integration scenarios 4 and 5 at the commit boundary.
-
-*   `[ ]` [UI] src/gui/`optionsdialog` — add `checkFindLocationOnStart`, `checkFindLocationRecheck`, `checkFindLocationSeed` and `checkFindLocationLeech` to `groupFindLocation`, each loaded from and saved to `BitTorrent::Session`, with the seed and leech checkboxes enabled only while `checkFindLocationRecheck` is checked. T15
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the pending-Start gate and the three assignment settings have no desktop control.
-        *   `[ ]` Functional: four checkboxes within the **Find location** group presenting **Find location when starting stopped torrents**, **Recheck automatically**, **Seed automatically** and **Leech automatically**. A change to any enables **Apply**, and all four are written when the page is applied.
-        *   `[ ]` Functional: **Seed automatically** and **Leech automatically** are enabled only while **Recheck automatically** is checked, and unchecking the group disables all four; neither change alters a checkbox's value.
-        *   `[ ]` Non-functional: every label and tooltip is translatable, and every control is a standard widget reachable by keyboard.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/gui`.
-        *   `[ ]` Out of scope: the web interface, which is the `appcontroller` and `preferences.html` nodes; what the settings cause.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: four widgets, their loading, saving, enablement and enabling of **Apply**. Outside: what each setting causes.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/bittorrent/session.h` — the eight Epic 2 setting accessors from the `sessionimpl` node, already included by `optionsdialog.cpp`.
-        *   `[ ]` `ui_optionsdialog.h` — generated from `optionsdialog.ui`, providing the four checkboxes.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `groupFindLocation` and its `QVBoxLayout` `groupFindLocationLayout`, holding `checkFindLocationOnAdd`, and the load, connection and save statements for both, are those the first epic's `optionsdialog` node adds to `optionsdialog.ui` and to `OptionsDialog::loadDownloadsTabOptions()` and `OptionsDialog::saveDownloadsTabOptions()`. `connect(m_ui->backupDirCheckBox, &QAbstractButton::toggled, m_ui->backupDirPathEdit, &QWidget::setEnabled);`, with `backupDirPathEdit->setEnabled(backupDirCheckBox->isChecked())` at load, is the precedent for a checkbox enabling another control.
-        *   `[ ]` A checkable `QGroupBox` re-enabling its children on being checked leaves a child disabled through `setEnabled(false)` disabled, so the recheck dependency survives the group being unchecked and checked again.
-
-    *   `[ ]` src/gui/`optionsdialog.ui`
-        *   `[ ]` In `groupFindLocationLayout`, after the item holding `checkFindLocationOnAdd`, add four items in order, each a `QCheckBox`.
-        *   `[ ]` `checkFindLocationOnStart`, with `text` `Find location when starting stopped torrents` and `toolTip` `Search for existing content before starting a stopped torrent.`
-        *   `[ ]` `checkFindLocationRecheck`, with `text` `Recheck automatically` and `toolTip` `When a location is assigned by Find location, recheck the torrent's files there.`
-        *   `[ ]` `checkFindLocationSeed`, with `text` `Seed automatically` and `toolTip` `When that recheck finds the torrent's content complete, start the torrent.`
-        *   `[ ]` `checkFindLocationLeech`, with `text` `Leech automatically` and `toolTip` `When that recheck finds the torrent's content incomplete, start the torrent.`
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Load: immediately before `m_ui->groupFindLocation->setChecked(session->isFindLocationEnabled());`, call `m_ui->checkFindLocationOnStart->setChecked(session->isFindLocationOnStartEnabled());`, `m_ui->checkFindLocationRecheck->setChecked(session->isFindLocationRecheckEnabled());`, `m_ui->checkFindLocationSeed->setChecked(session->isFindLocationSeedEnabled());` and `m_ui->checkFindLocationLeech->setChecked(session->isFindLocationLeechEnabled());` in that order, then call `m_ui->checkFindLocationSeed->setEnabled(m_ui->checkFindLocationRecheck->isChecked());` and `m_ui->checkFindLocationLeech->setEnabled(m_ui->checkFindLocationRecheck->isChecked());`.
-        *   `[ ]` Connect: after `connect(m_ui->checkFindLocationOnAdd, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);`, add `connect(m_ui->checkFindLocationOnStart, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);`, `connect(m_ui->checkFindLocationRecheck, &QAbstractButton::toggled, m_ui->checkFindLocationSeed, &QWidget::setEnabled);`, `connect(m_ui->checkFindLocationRecheck, &QAbstractButton::toggled, m_ui->checkFindLocationLeech, &QWidget::setEnabled);`, then one connection from each of `checkFindLocationRecheck`, `checkFindLocationSeed` and `checkFindLocationLeech` to `this, &ThisType::enableApplyButton` using `&QAbstractButton::toggled`.
-        *   `[ ]` Save: after `session->setFindLocationOnAddEnabled(m_ui->checkFindLocationOnAdd->isChecked());`, call `session->setFindLocationOnStartEnabled(m_ui->checkFindLocationOnStart->isChecked());`, `session->setFindLocationRecheckEnabled(m_ui->checkFindLocationRecheck->isChecked());`, `session->setFindLocationSeedEnabled(m_ui->checkFindLocationSeed->isChecked());` and `session->setFindLocationLeechEnabled(m_ui->checkFindLocationLeech->isChecked());` in that order. A disabled checkbox keeps its checked state and is saved with it.
-
-    *   `[ ]` src/gui/`optionsdialog.cpp`
-        *   `[ ]` Add the load, connection and save statements per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `optionsdialog` in `src/gui` depends on `BitTorrent::Session` in `src/base`, downward, as it already does.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-2: `checkFindLocationSeed` and `checkFindLocationLeech` are enabled exactly while `checkFindLocationRecheck` is checked and the group is checked.
-        *   `[ ]` ST-3: unchecking the group or `checkFindLocationRecheck` changes no checkbox's value, and applying writes each value unchanged.
-        *   `[ ]` IF-14: `checkFindLocationOnStart` carries the exact accepted label and persists independently of the other four settings in the group.
-        *   `[ ]` IF-12: `uic` routes the eight `.ui` strings through `tr()`.
-        *   `[ ]` Verify the dialog through Epic 2 integration scenario 6 at the commit boundary.
-
-*   `[ ]` [API] src/webui/api/`appcontroller` — expose `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on `app/preferences` and `app/setPreferences`, read from and written to `BitTorrent::Session`. T15
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the pending-Start gate and the three assignment settings are reachable only from the desktop dialog, so the headless daemon and remote clients can neither read nor change them.
-        *   `[ ]` Functional: `app/preferences` returns all four as booleans; `app/setPreferences` sets each when its key is present and leaves it untouched when its key is absent.
-
-    *   `[ ]` `role`
-        *   `[ ]` WebAPI controller in `src/webui/api`.
-        *   `[ ]` Out of scope: the web page, which is the `preferences.html` node; the changelog, which is the `WebAPI_Changelog` node; `API_VERSION`, which the maintainers set.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: four keys in two actions. Outside: what each setting causes, and how each is presented.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/bittorrent/session.h` — the eight Epic 2 setting accessors from the `sessionimpl` node, already included by `appcontroller.cpp`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `find_location_enabled` and `find_location_on_add_enabled`, added by the first epic's `appcontroller` node after `use_unwanted_folder` in `AppController::preferencesAction()` and `AppController::setPreferencesAction()`, are the model and the anchor.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `preferencesAction()`: after `find_location_on_add_enabled`, add `data[u"find_location_on_start_enabled"_s] = session->isFindLocationOnStartEnabled();`, `data[u"find_location_recheck_enabled"_s] = session->isFindLocationRecheckEnabled();`, `data[u"find_location_seed_enabled"_s] = session->isFindLocationSeedEnabled();` and `data[u"find_location_leech_enabled"_s] = session->isFindLocationLeechEnabled();` in that order.
-        *   `[ ]` `setPreferencesAction()`: after the `find_location_on_add_enabled` branch, add `if (hasKey(u"find_location_on_start_enabled"_s))` followed by `session->setFindLocationOnStartEnabled(it.value().toBool());`; then the same two lines using `find_location_recheck_enabled`/`setFindLocationRecheckEnabled`, `find_location_seed_enabled`/`setFindLocationSeedEnabled` and `find_location_leech_enabled`/`setFindLocationLeechEnabled`, in that order and with the existing indentation. An absent key makes no setter call.
-
-    *   `[ ]` src/webui/api/`appcontroller.cpp`
-        *   `[ ]` In `preferencesAction()`, after `data[u"find_location_on_add_enabled"_s] = session->isFindLocationOnAddEnabled();`, add the four assignments from the interaction spec in OnStart, recheck, seed and leech order.
-        *   `[ ]` In `setPreferencesAction()`, after the `find_location_on_add_enabled` branch, add the four `hasKey()` branches from the interaction spec in OnStart, recheck, seed and leech order.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `appcontroller` in `src/webui` depends on `BitTorrent::Session` in `src/base`, downward, as it already does.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-4, IF-14: all four settings are exposed on `app/preferences` and `app/setPreferences`.
-        *   `[ ]` ST-3: each key writes only its own setting.
-        *   `[ ]` CN-5: a request omitting any of the keys leaves that setting unchanged.
-        *   `[ ]` Verify the endpoints through Epic 2 integration scenario 6 at the commit boundary.
-
-*   `[ ]` [UI] src/webui/www/private/views/`preferences.html` — add `findLocationOnStartCheckbox`, `findLocationRecheckCheckbox`, `findLocationSeedCheckbox` and `findLocationLeechCheckbox` to the **Find location** fieldset, loaded from and saved to the four Epic 2 keys, with `updateFindLocationEnabled()` enforcing the group and recheck dependencies. T15
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the pending-Start and three assignment keys have no control in the web interface, so a user of the headless daemon can set them only by request.
-        *   `[ ]` Functional: four checkboxes within the **Find location** fieldset presenting the four Epic 2 keys, loaded when the page loads and sent when it is saved.
-        *   `[ ]` Functional: OnStart and recheck are disabled while the legend checkbox is unchecked; seed and leech are disabled while either the legend or recheck is unchecked; disabled values are still sent unchanged.
-        *   `[ ]` Non-functional: every label passes through `QBT_TR` in the `OptionsDialog` context with the same source string as the corresponding desktop label. The web interface extracts the strings into `src/webui/www/translations/webui_*.ts`; the desktop extracts them separately into `src/lang`.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/webui/www`.
-        *   `[ ]` Out of scope: the keys and their endpoints, which are the `appcontroller` node; the translation files, which the project's translation process maintains.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: four form rows, the enablement handler, and the load and save statements. Outside: what each setting causes.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `app/preferences`, returning `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled`, read from `pref` with those exact property names.
-        *   `[ ]` `app/setPreferences`, receiving the same four exact keys in `settings`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The **Find location** fieldset holding `findLocationCheckbox` and `findLocationOnAddCheckbox`, the handler `updateFindLocationEnabled` exported through `exports`, its load and save statements, and its call after loading are those the first epic's `preferences.html` node adds.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `updateFindLocationEnabled()` reads `findLocationCheckbox.checked` as `groupEnabled` and `findLocationRecheckCheckbox.checked` as `recheckEnabled`; it sets `findLocationOnAddCheckbox.disabled`, `findLocationOnStartCheckbox.disabled` and `findLocationRecheckCheckbox.disabled` to `!groupEnabled`, and sets seed and leech disabled to `!(groupEnabled && recheckEnabled)`.
-        *   `[ ]` It runs from the `onclick` of `findLocationCheckbox` and `findLocationRecheckCheckbox`, and once after all six checkboxes are loaded.
-
-    *   `[ ]` src/webui/www/private/views/`preferences.html`
-        *   `[ ]` Markup: after the `findLocationOnAddCheckbox` row, add four `<div class="formRow">` elements. The first holds `<input type="checkbox" id="findLocationOnStartCheckbox" title="QBT_TR(Search for existing content before starting a stopped torrent.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationOnStartCheckbox">QBT_TR(Find location when starting stopped torrents)QBT_TR[CONTEXT=OptionsDialog]</label>`.
-        *   `[ ]` The second row holds `<input type="checkbox" id="findLocationRecheckCheckbox" title="QBT_TR(When a location is assigned by Find location, recheck the torrent's files there.)QBT_TR[CONTEXT=OptionsDialog]" onclick="qBittorrent.Preferences.updateFindLocationEnabled();">` and `<label for="findLocationRecheckCheckbox">QBT_TR(Recheck automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`.
-        *   `[ ]` The third row holds `<input type="checkbox" id="findLocationSeedCheckbox" title="QBT_TR(When that recheck finds the torrent's content complete, start the torrent.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationSeedCheckbox">QBT_TR(Seed automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`.
-        *   `[ ]` The fourth row holds `<input type="checkbox" id="findLocationLeechCheckbox" title="QBT_TR(When that recheck finds the torrent's content incomplete, start the torrent.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationLeechCheckbox">QBT_TR(Leech automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`. Indent all four rows exactly as the existing OnAdd row.
-        *   `[ ]` Handler: rewrite the body of `updateFindLocationEnabled` per the interaction spec.
-        *   `[ ]` Load: after `document.getElementById("findLocationOnAddCheckbox").checked = pref.find_location_on_add_enabled;` and before `updateFindLocationEnabled();`, assign `pref.find_location_on_start_enabled`, `pref.find_location_recheck_enabled`, `pref.find_location_seed_enabled` and `pref.find_location_leech_enabled` to the checked properties of `findLocationOnStartCheckbox`, `findLocationRecheckCheckbox`, `findLocationSeedCheckbox` and `findLocationLeechCheckbox`, respectively and in that order.
-        *   `[ ]` Save: after `settings["find_location_on_add_enabled"] = document.getElementById("findLocationOnAddCheckbox").checked;`, assign the checked properties of the same four checkbox IDs to `settings["find_location_on_start_enabled"]`, `settings["find_location_recheck_enabled"]`, `settings["find_location_seed_enabled"]` and `settings["find_location_leech_enabled"]`, respectively and in that order.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` The page consumes the WebAPI and adds no dependency beyond the four keys the `appcontroller` node provides.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-5, IF-14: all four settings have a control on the web interface preferences page.
-        *   `[ ]` IF-2: the web controls honour the recheck dependency the options dialog enforces.
-        *   `[ ]` IF-12: every label is wrapped in `QBT_TR` in the `OptionsDialog` context and is extracted into the WebUI translation catalogs independently of the desktop catalogs.
-        *   `[ ]` ST-3: a disabled checkbox keeps its `checked` state and is sent unchanged.
-        *   `[ ]` The `CI - WebUI` workflow's `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
-        *   `[ ]` Verify the page through Epic 2 integration scenario 6 at the commit boundary.
-
-*   `[ ]` [DOCS] `WebAPI_Changelog` — record `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on `app/preferences` and `app/setPreferences` under the version heading at the top of the file. T15
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: WebAPI clients learn of new preference keys from this file, and four keys join both preference endpoints.
-        *   `[ ]` Functional: add one entry under the version heading at the top of the file when the branch is rebased, linking this submission's pull request and naming all four keys on both endpoints. Leave `API_VERSION` and the version headings unchanged.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The entry added by the first epic's `WebAPI_Changelog` node is the wording model. Entries under a heading run newest first.
-
-    *   `[ ]` `WebAPI_Changelog.md`
-        *   `[ ]` Under the heading at the top of the file, before its first entry, insert the entry below, separated from its neighbours as the existing entries are.
-        *   `[ ]` The entry is a top-level bullet linking the pull request, `* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)`, where `<number>` is the number GitHub assigns when this submission's pull request is opened.
-        *   `[ ]` Under it, the indented bullet ``* `app/preferences` endpoint includes `find_location_on_start_enabled` (bool), `find_location_recheck_enabled` (bool), `find_location_seed_enabled` (bool) and `find_location_leech_enabled` (bool) options``.
-        *   `[ ]` Under it, the indented bullet ``* `app/setPreferences` endpoint allows to set `find_location_on_start_enabled` (bool), `find_location_recheck_enabled` (bool), `find_location_seed_enabled` (bool) and `find_location_leech_enabled` (bool) options``.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the keys it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
-        *   `[ ]` The file passes the `rumdl` pre-commit hook.
+*   `[X]` [BE] src/base/bittorrent/`torrentimpl`, `session` and `sessionimpl` — preserve the existing Start, Stop, metadata, movement and check bodies; add one Start interception call and one private Stop-origin overload in `TorrentImpl`; add the fourth Find Location setting and the manual discovery operations to `Session`; factor `searchExistingContent()`; and extend one `SessionImpl` assignment map with the exact state needed to hold, cancel and release a pending Start. T10, T11, T12
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: discovery is reachable only from `SessionImpl`, which `src/gui` does not hold, so a torrent already in the session cannot be located on demand; assigning a location through the `Torrent` interface queues a storage move that a recheck issued at once would overtake; and `TorrentImpl::start()` currently clears an error and immediately leaves the stopped state or reloads missing files without giving Find Location an interception point.
+        *   `[X]` Functional: for one torrent named by its ID, run discovery through the same composition the add path uses, and report the location it selected and whether any file was found there through a signal carrying that torrent's ID.
+        *   `[X]` Functional: for one torrent named by its ID and a location, call the existing `setAutoTMMEnabled(false)` and `setSavePath(location)` operations in that order, as **Set location...** does; do not change either operation.
+        *   `[X]` Functional: **Find location when starting stopped torrents**, **Recheck automatically**, **Seed automatically** and **Leech automatically** are session settings, each defaulting to enabled, persisting under its own key and writing only on a changed value.
+        *   `[X]` Functional: while **Recheck automatically** is enabled, stop the torrent and recheck it at the assigned location, after its storage move where one is queued and at once where none is.
+        *   `[X]` Functional: when a torrent held as awaiting a start decision reports its check, stop holding it and start it in auto-managed mode where its content is complete and **Seed automatically** is enabled, or where its content is incomplete and **Leech automatically** is enabled; otherwise leave it stopped at its location.
+        *   `[X]` Functional: a second assignment to the location already held in the feature-owned assignment map is coalesced into the active assignment and performs no second location change or recheck; a second assignment to a different location replaces the active assignment.
+        *   `[X]` Functional: an eligible explicit Start is held before `m_hasMissingFiles`, `m_isStopped` or native pause/resume state changes; a match is assigned and successfully rechecked before the saved normal or forced Start is released; a miss releases that Start without assignment; repeated Start updates the saved mode without duplicate work; Stop, removal, shutdown and every feature failure erase the pending Start before a late callback can act.
+        *   `[X]` Non-functional: discovery probes on the session I/O thread and never blocks its caller; no feature branch creates, allocates or writes a payload file before a successful miss or successful feature recheck; assignment changes no implementation of the torrent location operations or the storage move queue; and every added lifecycle branch is guarded by an entry in `m_locationAssignments`.
+
+    *   `[X]` `role`
+        *   `[X]` `SessionImpl` is the feature owner because it already owns the torrent registry, the File Searcher, settings and the existing callbacks from `TorrentImpl`. `TorrentImpl` supplies only the two narrow entry points that cannot be implemented after the fact: pre-payload Start interception and distinguishing public Stop from its own stop-after-check call.
+        *   `[X]` Out of scope: choosing which torrents to locate, presenting an outcome, and asking the user for a location, which are the `transferlistwidget`, `unmatchedtorrentsdialog`, `torrentscontroller`, `mocha-init.js`, `setlocation.html` and `unmatchedtorrents.html` nodes; changing `TorrentImpl::setAutoTMMEnabled()`, `setSavePath()`, `setDownloadPath()`, `moveStorage()`, `forceRecheck()` or the move queue; adding a general lifecycle coordinator; and repairing force recheck outside a feature-owned transaction.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: four persisted booleans and their accessors; two `TorrentImpl` calls into `SessionImpl`; discovery for an existing torrent; one map entry holding phase, target, optional Start mode, one-shot Start pass and search token; exact transitions in the existing metadata, movement, check, error, removal and shutdown hooks. Outside: selection and presentation, candidate construction and probing, the move queue, and general torrent lifecycle behavior.
+
+    *   `[X]` `deps`
+        *   `[X]` `filesearcher.h` — `SearchRootsResult`, `FileSearcher::searchRoots()`, `candidateRoots()` and `FileSearchResult`. Beside it in `src/base/bittorrent`, already included by `sessionimpl.cpp`.
+        *   `[X]` `torrentimpl.h` — the public methods `TorrentImpl::setAutoTMMEnabled()`, `setSavePath()`, `setDownloadPath()`, `downloadPath()`, `actualStorageLocation()`, `stop()`, `start()`, `forceRecheck()`, `nativeHandle()`, `isFinished()`, `isChecking()`, `hasMetadata()`, `savePath()`, `filePaths()`, `info()` and `id()`. Beside it, already included by `sessionimpl.cpp`. Do not call private `TorrentImpl::isMoveInProgress()` from `SessionImpl`.
+        *   `[X]` `base/settingvalue.h` — `CachedSettingValue`, already included by `sessionimpl.h`, with `BITTORRENT_SESSION_KEY` defined in `sessionimpl.cpp`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `TorrentImpl::setSavePath()` and `TorrentImpl::setDownloadPath()` use the existing storage move queue. `moveStorage()` marks the torrent moving when it enqueues a job, and `TorrentImpl::handleMoveStorageJobFinished()` calls `SessionImpl::handleTorrentStorageMovingStateChanged()` once no move is outstanding. A failed move reports the torrent's current location through the same completion path.
+        *   `[X]` The existing queue handles overlapping location operations without a feature-specific path: it cancels an inactive queued job for the same torrent before appending the new job, lets an active job finish before a different destination queued behind it, and refuses a duplicate of the active destination. The feature calls the existing torrent setters and never mutates `m_moveStorageQueue`. It reads the queue only through `isTorrentStorageMoving()`, because `TorrentImpl::isMoving()` reports the derived state, in which `CheckingResumeData` takes precedence over `Moving`, so a torrent reloading after its metadata arrives reports no move while its move runs.
+        *   `[X]` `TorrentImpl::forceRecheck()` starts a stopped torrent with `StopCondition::FilesChecked`, so `TorrentImpl::handleTorrentChecked()` stops it again when the check completes and then, in its status-updated trigger, calls `SessionImpl::handleTorrentChecked()`, which emits `torrentFinishedChecking`.
+        *   `[X]` `forceRecheck()` sets `m_nativeStatus.state` to `checking_resume_data` before its internal `start()` call. The plan nevertheless uses an explicit `LocationStartPass::Recheck` because that pass distinguishes the internal call from a repeated explicit Start and lets TX-6 update the latter's saved mode.
+        *   `[X]` `TorrentImpl::setSavePath()` on an incomplete torrent with a non-empty download path records the save path without moving storage. `setDownloadPath({})` then moves that torrent's active storage to its save path. Start-triggered assignment uses this exact pair when necessary; manual assignment retains the existing single-`setSavePath()` semantics.
+        *   `[X]` `findTorrentLocation()` and `assignTorrentLocation()` are called on the main thread by the `transferlistwidget`, `unmatchedtorrentsdialog` and `torrentscontroller` nodes through `BitTorrent::Session::instance()`, and `torrentLocationFound` is emitted on the main thread from a continuation whose context is `this`.
+        *   `[X]` A metadata-less Start first stores its entry under the current ID. Under libtorrent 2, `TorrentImpl::handleMetadataReceived()` calls `SessionImpl::handleTorrentInfoHashChanged()` before the metadata pipeline later calls `handleTorrentMetadataReceived()`; the former must therefore re-key the waiting entry before the latter starts its search.
+
+    *   `[X]` src/base/bittorrent/`torrentimpl.h`
+        *   `[X]` In `private`, after `void reload();`, add `void stop(bool cancelPendingFindLocationStart);`. Do not change the public `void stop() override;` or `void start(TorrentOperatingMode mode = TorrentOperatingMode::AutoManaged) override;` declarations.
+
+    *   `[X]` src/base/bittorrent/`torrentimpl.cpp`
+        *   `[X]` Replace the current `TorrentImpl::stop()` body with `stop(true);`. Define `TorrentImpl::stop(const bool cancelPendingFindLocationStart)` immediately after it. At the top of that overload, when the argument is true, call `m_session->cancelFindLocationStart(this);`; after that call, copy the former public `stop()` body without changing its statements or order.
+        *   `[X]` In `TorrentImpl::handleTorrentChecked()`, change only the `stop();` under `if (stopCondition() == StopCondition::FilesChecked)` to `stop(false);`. This preserves the existing stop-after-check behavior without cancelling the feature entry immediately before `SessionImpl::handleTorrentChecked()` consumes it.
+        *   `[X]` In `TorrentImpl::start(const TorrentOperatingMode mode)`, leave the existing `hasError()` block and `m_operatingMode = mode;` unchanged. Immediately after `m_operatingMode = mode;` and before `if (m_hasMissingFiles)`, insert `if (m_session->interceptFindLocationStart(this, mode))` followed by `return;`. Do not move or rewrite the missing-files, stopped-state, auto-managed or forced-resume blocks.
+
+    *   `[X]` src/base/bittorrent/`session.h`
+        *   `[X]` After `virtual void setFindLocationOnAddEnabled(bool enabled) = 0;`, add in order `virtual bool isFindLocationOnStartEnabled() const = 0;`, `virtual void setFindLocationOnStartEnabled(bool enabled) = 0;`, `virtual bool isFindLocationRecheckEnabled() const = 0;`, `virtual void setFindLocationRecheckEnabled(bool enabled) = 0;`, `virtual bool isFindLocationSeedEnabled() const = 0;`, `virtual void setFindLocationSeedEnabled(bool enabled) = 0;`, `virtual bool isFindLocationLeechEnabled() const = 0;` and `virtual void setFindLocationLeechEnabled(bool enabled) = 0;`.
+        *   `[X]` After `virtual void bottomTorrentsQueuePos(const QList<TorrentID> &ids) = 0;`, add `virtual void findTorrentLocation(const TorrentID &id) = 0;` then `virtual void assignTorrentLocation(const TorrentID &id, const Path &location) = 0;`.
+        *   `[X]` In `signals`, after `void torrentFinishedChecking(Torrent *torrent);`, add `void torrentLocationFound(const TorrentID &id, const Path &location, bool found);`.
+
+    *   `[X]` src/base/bittorrent/`sessionimpl.h`
+        *   `[X]` After `struct FileSearchResult;`, add `struct SearchRootsResult;`.
+        *   `[X]` After `void setFindLocationOnAddEnabled(bool enabled) override;`, add in order `bool isFindLocationOnStartEnabled() const override;`, `void setFindLocationOnStartEnabled(bool enabled) override;`, `bool isFindLocationRecheckEnabled() const override;`, `void setFindLocationRecheckEnabled(bool enabled) override;`, `bool isFindLocationSeedEnabled() const override;`, `void setFindLocationSeedEnabled(bool enabled) override;`, `bool isFindLocationLeechEnabled() const override;` and `void setFindLocationLeechEnabled(bool enabled) override;`.
+        *   `[X]` After `void bottomTorrentsQueuePos(const QList<TorrentID> &ids) override;`, add `void findTorrentLocation(const TorrentID &id) override;` then `void assignTorrentLocation(const TorrentID &id, const Path &location) override;`.
+        *   `[X]` In the public `// Torrent interface` block, immediately before `handleTorrentResumeDataRequested`, add `bool interceptFindLocationStart(TorrentImpl *torrent, TorrentOperatingMode mode);` and `void cancelFindLocationStart(TorrentImpl *torrent);`. These are concrete `SessionImpl` hooks used only by `TorrentImpl`; do not add them to `Session`.
+        *   `[X]` In the `private` section, after `void handleTorrentFinishedAlert(const lt::torrent_finished_alert *alert);`, add `QFuture<SearchRootsResult> searchExistingContent(const Path &torrentSavePath, const Path &torrentDownloadPath, const PathList &filePaths, const QString &torrentName, const QString &sourceFileName);`.
+        *   `[X]` After `searchExistingContent()`, declare, in order, `void searchStartedTorrentLocation(TorrentImpl *torrent, quint64 token);`, `void assignStartedTorrentLocation(TorrentImpl *torrent, const Path &location);`, `void forceLocationAssignmentRecheck(TorrentImpl *torrent);`, `void releaseFindLocationStart(TorrentImpl *torrent, bool matched);` and `void failFindLocationStart(TorrentImpl *torrent, const QString &phase, const QString &reason);` and `bool isTorrentStorageMoving(const TorrentImpl *torrent) const;`.
+        *   `[X]` After `CachedSettingValue<bool> m_isFindLocationOnAddEnabled;`, add `CachedSettingValue<bool> m_isFindLocationOnStartEnabled;`, `CachedSettingValue<bool> m_isFindLocationRecheckEnabled;`, `CachedSettingValue<bool> m_isFindLocationSeedEnabled;` and `CachedSettingValue<bool> m_isFindLocationLeechEnabled;` in that order.
+        *   `[X]` Immediately before `struct MoveStorageJob`, add `enum class LocationAssignmentPhase { WaitingForMetadata, Searching, WaitingForMove, WaitingForCheck };`, `enum class LocationStartPass { None, MetadataOnly, Recheck, Terminal };`, then `struct LocationAssignmentState { Path location; LocationAssignmentPhase phase = LocationAssignmentPhase::Searching; std::optional<TorrentOperatingMode> startMode; LocationStartPass startPass = LocationStartPass::None; quint64 token = 0; };`. Keep one declaration per line in the actual header.
+        *   `[X]` After `PathList m_watchedFolderSavePaths;`, add `QHash<TorrentID, LocationAssignmentState> m_locationAssignments;` and `quint64 m_nextLocationAssignmentToken = 0;`.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Settings: initialise, in order, `m_isFindLocationOnStartEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/OnStartEnabled"_s), true)`, `m_isFindLocationRecheckEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/RecheckEnabled"_s), true)`, `m_isFindLocationSeedEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/SeedEnabled"_s), true)` and `m_isFindLocationLeechEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/LeechEnabled"_s), true)`. Each getter returns its named member. Each setter returns when its argument equals that getter and otherwise assigns the argument only to the named member.
+        *   `[X]` `searchExistingContent()` carries what `findExistingContent()` performs while both settings hold, as the first epic's `sessionimpl` node specifies: the name form's name `nameFormName`; `searchRoots` built from `m_watchedFolderSavePaths`; `candidateRoots(torrentSavePath, torrentDownloadPath, searchRoots, savePath(), nameFormName, sourceFileName)` as `candidates`; `const bool appendExtension = isAppendExtensionEnabled();` read on the calling thread; `m_fileSearcher->searchRoots(filePaths, torrentSavePath, torrentDownloadPath, candidates, appendExtension, promise)` dispatched onto the I/O thread; and the continuation logging the outcome. Its continuation returns the `SearchRootsResult` unchanged, and it returns that continuation's future.
+        *   `[X]` `findExistingContent()` with either setting off returns `findIncompleteFiles(torrentSavePath, torrentDownloadPath, filePaths)`; with both on it returns `searchExistingContent(torrentSavePath, torrentDownloadPath, filePaths, torrentName, sourceFileName).then(this, ...)`, whose continuation returns `FileSearchResult {.savePath = result.savePath, .fileNames = result.fileNames}`.
+        *   `[X]` `findTorrentLocation(id)` with no torrent in `m_torrents` under `id`, or a torrent without metadata → `emit torrentLocationFound(id, {}, false)`.
+        *   `[X]` `findTorrentLocation(id)` with a torrent holding metadata → `searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {})`, continued with `.then(this, ...)` into `emit torrentLocationFound(id, result.savePath, ((result.matchCount > 0) || result.foundAtOwnPath))`.
+        *   `[X]` `interceptFindLocationStart(torrent, mode)` first looks up `torrent->id()`. If the entry has a non-`None` `startPass`, save the pass, set it to `None`, erase the entry only when the saved pass is `Terminal`, and return `false`; this is the only bypass of interception.
+        *   `[X]` With no pass and an existing entry whose `startMode` is present, set `entry.startMode = mode` and return `true` before testing stopped or checking state. Do not change its phase, target or token and issue no work; this is the repeated-Start coalescing branch during every transaction phase, including the internally running feature recheck.
+        *   `[X]` Otherwise return `false` when `!isFindLocationEnabled()`, `!isFindLocationOnStartEnabled()`, `!torrent->isStopped()`, `torrent->isAutoTMMEnabled()` or `torrent->isChecking()`. `isChecking()` reads the native state, which `forceRecheck()` sets to `checking_resume_data` before its internal `start()`, so a recheck of a stopped torrent is never intercepted; a stopped torrent that has never been checked and holds files at its own path is in `checking_files` and also falls through, to libtorrent's own check of those files. No state is created or changed in these branches, so the remainder of the existing `TorrentImpl::start()` executes unchanged. When an eligible manual-assignment entry exists without `startMode`, set `startMode = mode` and return `true` without changing that entry's phase, target or token.
+        *   `[X]` With an eligible torrent and no entry, increment `m_nextLocationAssignmentToken`, insert a state with `startMode = mode` and that token, and hold the outer Start by returning `true`. If `torrent->hasMetadata()`, set `phase = Searching` and call `searchStartedTorrentLocation(torrent, token)`. Otherwise set `phase = WaitingForMetadata`, set `startPass = MetadataOnly`, call `torrent->start(mode)`, then call `torrent->setStopCondition(Torrent::StopCondition::MetadataReceived)`; the nested Start consumes the pass and only the existing metadata-acquisition path runs.
+        *   `[X]` `searchStartedTorrentLocation(torrent, token)` copies `const TorrentID id = torrent->id()` and calls `searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {})`. Its success continuation captures only `id` and `token`, obtains `TorrentImpl *const currentTorrent = m_torrents.value(id)`, and returns unless that pointer is non-null and the map contains `id` with the same token, `phase == Searching` and a `startMode`.
+        *   `[X]` In that valid continuation, `const bool found = result.foundAtOwnPath || (result.matchCount > 0);`. A false value calls `releaseFindLocationStart(currentTorrent, false)`. A true value stores `result.savePath` in the entry and calls `assignStartedTorrentLocation(currentTorrent, result.savePath)`. On the future returned by that `then(this, ...)`, attach a no-argument `onFailed(this, ...)` capturing only `id` and `token`; repeat the pointer, token, phase and Start-intent validation, then call `failFindLocationStart(currentTorrent, u"search"_s, tr("the asynchronous search did not complete"))`.
+        *   `[X]` `assignStartedTorrentLocation(torrent, location)` never copies payload data itself. If `torrent->actualStorageLocation() == location`, call `forceLocationAssignmentRecheck(torrent)`. Otherwise call `torrent->setAutoTMMEnabled(false)`. When `location != torrent->savePath()`, next call `torrent->setSavePath(location)`. If `!torrent->isFinished() && !torrent->downloadPath().isEmpty() && (torrent->actualStorageLocation() != location)` after that call, call `torrent->setDownloadPath({})`; this makes the newly recorded save path the active storage location through the existing `ChangeDownloadPath` move. Then set `phase = WaitingForMove` when `isTorrentStorageMoving(torrent)`; if `!isTorrentStorageMoving(torrent)` and the actual location equals the target, call `forceLocationAssignmentRecheck(torrent)`; otherwise call `failFindLocationStart(torrent, u"assignment"_s, tr("the selected location did not become the torrent's storage location"))`.
+        *   `[X]` `assignTorrentLocation(id, location)` with an entry for `id` in `m_locationAssignments` recording the same `location` → return. An entry for `id` recording a different location → erase it and continue.
+        *   `[X]` `assignTorrentLocation(id, location)` with no torrent in `m_torrents` under `id`, a torrent without metadata, `location == torrent->savePath()` or `location == torrent->downloadPath()` → return.
+        *   `[X]` `assignTorrentLocation(id, location)` with a torrent holding metadata → `torrent->setAutoTMMEnabled(false)`, then `torrent->setSavePath(location)`.
+        *   `[X]` For manual assignment, call `torrent->stop()` before inserting a new map entry. With `isFindLocationRecheckEnabled()` false, return after the two location calls. With it true and `isTorrentStorageMoving(torrent)`, insert `{.location = location, .phase = LocationAssignmentPhase::WaitingForMove}`. With it true, `!isTorrentStorageMoving(torrent)` and `torrent->actualStorageLocation() != location`, return without a recheck as the pre-existing incomplete-download-path rule requires. Otherwise insert `{.location = location, .phase = LocationAssignmentPhase::WaitingForCheck}`, then call `forceLocationAssignmentRecheck(torrent)`.
+        *   `[X]` `isTorrentStorageMoving(torrent)`: `true` exactly while `m_moveStorageQueue` holds a job whose `torrentHandle` equals `torrent->nativeHandle()`, tested with `std::ranges::any_of`. A job enters the queue in the call that marks the torrent moving and leaves it before `handleTorrentStorageMovingStateChanged()` runs, so the test matches the torrent's move flag whatever state the torrent reports.
+        *   `[X]` `forceLocationAssignmentRecheck(torrent)`: require an existing entry; set its phase to `WaitingForCheck` and its `startPass` to `Recheck`, then call `torrent->forceRecheck()`. The internal `start()` consumes `Recheck`, retains the entry and follows the unchanged Start body. This function is used for both manual assignment and pending Start, so neither can recursively start a second search.
+        *   `[X]` `handleTorrentStorageMovingStateChanged(torrent)`: after `emit torrentsUpdated({torrent});`, return unless the entry is `WaitingForMove` and `!isTorrentStorageMoving(torrent)`. When settled at `state.location`, call `forceLocationAssignmentRecheck(torrent)`. On a different actual location, call `failFindLocationStart(torrent, u"movement"_s, tr("the storage move did not reach the selected location"))` if `startMode` is present; otherwise erase the manual-assignment entry.
+        *   `[X]` `handleTorrentChecked(torrent)`: before `emit torrentFinishedChecking(torrent);`, return from feature handling unless the entry is `WaitingForCheck` and `torrent->isStopped()`. The feature's recheck starts a stopped torrent under `StopCondition::FilesChecked`, and `TorrentImpl::handleTorrentChecked()` calls `stop(false)` before this callback runs, so the feature's own check always reports a stopped torrent. A check the feature did not issue, such as the one libtorrent runs when a magnet torrent reloads after its metadata arrives, completes while the torrent is running and does not advance the entry. For an entry with Start intent, `torrent->hasError()` calls `failFindLocationStart(torrent, u"recheck"_s, torrent->error())`; movement or actual-location mismatch calls it with `u"recheck"_s` and `tr("the completed check did not report the selected location")`. Otherwise call `releaseFindLocationStart(torrent, true)`. For an entry without Start intent, erase it on error or location mismatch; otherwise start in `TorrentOperatingMode::AutoManaged` only under the existing complete/Seed or incomplete/Leech decisions, arming `LocationStartPass::Terminal` before that `start()` call, and erase it without starting when neither decision holds.
+        *   `[X]` `releaseFindLocationStart(torrent, matched)`: copy the required `startMode`; set the entry's `startPass = Terminal`; log exactly one INFO outcome, `Find location Start continued after a match. Torrent: "%1". Location: "%2"` when `matched` or `Find location Start continued after no match. Torrent: "%1"` otherwise; then call `torrent->start(copiedMode)`. The nested interceptor consumes `Terminal`, erases the entry and lets the unchanged Start body execute once.
+        *   `[X]` `cancelFindLocationStart(torrent)`: when the entry exists and has `startMode`, erase it and log `Find location Start cancelled. Torrent: "%1"` at INFO; otherwise do nothing. Because public `stop()` calls this even for an already stopped torrent, Stop cancels searching and waiting-for-metadata states too.
+        *   `[X]` `failFindLocationStart(torrent, phase, reason)`: when the entry has no `startMode`, erase it and return. Otherwise erase it first, log `Find location Start failed. Torrent: "%1". Phase: %2. Reason: "%3"` at WARNING, then call public `torrent->stop()`. Erasing first prevents that Stop's cancellation hook from producing a second terminal log and clears `StopCondition::FilesChecked` through the existing stop body when the failed feature recheck had internally started the torrent.
+        *   `[X]` `handleTorrentMetadataReceived(torrent)`: immediately after `emit torrentMetadataReceived(torrent);` and before the torrent-backup early return, find the entry. Only `WaitingForMetadata` with a `startMode` advances: set `phase = Searching` and call `searchStartedTorrentLocation(torrent, state.token)`.
+        *   `[X]` `handleTorrentInfoHashChanged(torrent, prevInfoHash)`: inside `if (currentID != prevID)`, after re-keying `m_torrents` and `m_changedTorrentIDs`, find `prevID` in `m_locationAssignments`; when present, move its value to `currentID` and erase the old key. No other phase changes.
+        *   `[X]` `handleFileErrorAlert()`: immediately after `torrent->handleFileError(...)`, define `const QString errorMessage = QString::fromStdString(alert->message());`; use `errorMessage` in the existing log and `torrentIOError` emission instead of the block-local `msg`. After `m_recentErroredTorrentsTimer->start();`, if the entry is `WaitingForCheck` with Start intent, call `failFindLocationStart(torrent, u"recheck"_s, errorMessage)`.
+        *   `[X]` `handleSaveResumeDataFailedAlert()`: inside the existing `alert->error != lt::errors::resume_data_not_modified` block, materialize the same error text the existing version-specific log expression uses as `const QString errorMessage`; retain the existing CRITICAL log with that variable, then call `failFindLocationStart(torrent, u"metadata"_s, errorMessage)` only for a `WaitingForMetadata` entry with Start intent.
+        *   `[X]` `handleStorageMovedFailedAlert()`: after the existing WARNING log and before `handleMoveTorrentStorageJobFinished(currentLocation)`, call `failFindLocationStart(torrent, u"movement"_s, errorMessage)` only when `torrent` is non-null and its entry is `WaitingForMove` with Start intent. Manual entries retain the existing logging and are erased when `handleMoveTorrentStorageJobFinished(currentLocation)` reaches the guarded movement callback with the mismatched path.
+        *   `[X]` `removeTorrent(id, deleteOption)`: after `const TorrentID torrentID = torrent->id();`, call `cancelFindLocationStart(torrent);` then `m_locationAssignments.remove(torrentID)`. The first call supplies the pending Start's terminal cancellation log; the second also removes a manual-assignment entry.
+        *   `[X]` `SessionImpl::~SessionImpl()`: before `m_nativeSession->pause();`, iterate the entries with `startMode`, obtain each still-live torrent from `m_torrents`, and log `Find location Start cancelled. Torrent: "%1"` at INFO once for each; then call `m_locationAssignments.clear();`. Leave the existing native-session pause, saving, worker draining and teardown sequence unchanged. Search continuations are context-bound to `this` and their ID/token guard makes results already queued before teardown inert.
+
+    *   `[X]` src/base/bittorrent/`sessionimpl.cpp`
+        *   `[X]` In the constructor's initialiser list, after `m_isFindLocationOnAddEnabled(BITTORRENT_SESSION_KEY(u"FindLocation/OnAddEnabled"_s), true)`, add the four complete initializers written in `interaction.spec`, in OnStart, recheck, seed and leech order.
+        *   `[X]` After `SessionImpl::setFindLocationOnAddEnabled()`, define `isFindLocationOnStartEnabled()`/`setFindLocationOnStartEnabled()`, `isFindLocationRecheckEnabled()`/`setFindLocationRecheckEnabled()`, `isFindLocationSeedEnabled()`/`setFindLocationSeedEnabled()` and `isFindLocationLeechEnabled()`/`setFindLocationLeechEnabled()` in that order. Each getter returns its same-named cached member; each setter takes `const bool enabled`, returns when `enabled == getter()`, and otherwise assigns `enabled` to that member.
+        *   `[X]` After `SessionImpl::findExistingContent()`, define `SessionImpl::searchExistingContent()`, moving into it the enabled branch of `findExistingContent()` per the interaction spec, and reduce `findExistingContent()` to its two branches per the interaction spec.
+        *   `[X]` After `SessionImpl::bottomTorrentsQueuePos()`, define `SessionImpl::findTorrentLocation()`, `SessionImpl::assignTorrentLocation()` and `SessionImpl::forceLocationAssignmentRecheck()` per the interaction spec, each public operation finding its torrent through `m_torrents.value(id)`.
+        *   `[X]` Define the five private transaction helpers after the three public location operations. Extend `handleTorrentMetadataReceived()`, `handleTorrentInfoHashChanged()`, `handleTorrentStorageMovingStateChanged()`, `handleTorrentChecked()`, the three named failure handlers, `removeTorrent()` and `~SessionImpl()` at the exact anchors and with the exact guards above.
+
+    *   `[X]` `directionality`
+        *   `[X]` `sessionimpl` depends on `filesearcher` and `torrentimpl` beside it and on `settingvalue` beneath it, through includes it already carries. `src/gui` reaches it only through `Session`; `TorrentImpl` already holds `SessionImpl *const m_session` and adds only the two concrete calls named above. No GUI or WebUI type enters `src/base`, and no new component owns torrent lifecycle state.
+
+    *   `[X]` `requirements`
+        *   `[X]` ST-1, ST-3, ST-9, CN-5: the eight Epic 2 accessors exist on `Session`; their four separate `FindLocation/...Enabled` keys default to `true`; no existing key, resume datum or save path is renamed or re-read.
+        *   `[X]` IF-11: `findTorrentLocation()` and `assignTorrentLocation()` are declared on `Session`.
+        *   `[X]` IF-13: `findTorrentLocation()` returns `void` and reports one torrent's outcome through `torrentLocationFound`, emitted as that torrent's search completes.
+        *   `[X]` CR-9: `findExistingContent()` and `findTorrentLocation()` both compose through `searchExistingContent()`.
+        *   `[X]` AS-1: `setAutoTMMEnabled(false)` precedes `setSavePath()`.
+        *   `[X]` AS-2: for assignment without pending Start, `forceRecheck()` is issued only when `isFindLocationRecheckEnabled()` holds; for pending Start it is mandatory. Both paths issue it only at the target actual location.
+        *   `[X]` AS-3: assignment invokes the existing torrent location operations without changing their implementations or the move queue, and a failed move erases the feature state without rechecking the prior location.
+        *   `[X]` AS-4, AS-8: the start decision is taken in `handleTorrentChecked()` only for a `WaitingForCheck` state installed immediately before the feature's own `forceRecheck()`, keyed by `TorrentID` and carrying the assigned location.
+        *   `[X]` AS-5, AS-6, AS-7: `start()` is called in its default auto-managed mode, under **Seed automatically** for complete content and **Leech automatically** for incomplete content.
+        *   `[X]` TX-1, TX-2: the sole Start insertion is after error clearing and mode recording and before missing-files reload or stopped-state changes; every disabled and ineligible branch returns false without state, and an eligible outer Start returns before the original body can perform payload work.
+        *   `[X]` TX-3, TX-4, TX-5: a match reaches release only from `handleTorrentChecked()` in `WaitingForCheck`; a miss reaches release only from the successful search continuation; both use the saved explicit mode through `LocationStartPass::Terminal`.
+        *   `[X]` TX-6: an entry and token are created once; another eligible Start changes only `startMode`; the `MetadataOnly`, `Recheck` and `Terminal` passes identify all feature-owned recursive Start calls and are consumed once.
+        *   `[X]` TX-7, TX-8: public Stop, removal, teardown, stale-token search results and the named failure hooks cannot release the pending Start; the recheck error path erases before ordinary Stop and accepts only `handleTorrentChecked()` as success.
+        *   `[X]` LG-4: exactly one terminal transaction log is emitted by release, cancellation or failure; stale callbacks emit none.
+        *   `[X]` PS-10, CN-7: the location is kept at any completion, no threshold is applied, and starting and checking pass through the session's queueing and `MaxActiveCheckingTorrents` limits.
+        *   `[X]` RL-3, RL-4, RL-6: discovery probes on `m_fileSearcher`'s thread, `findTorrentLocation()` returns before the probe completes, and discovery itself creates, moves, renames and deletes nothing.
+        *   `[X]` LG-1, LG-2: `searchExistingContent()` logs as the first epic's `sessionimpl` node specifies, from both call sites.
+        *   `[X]` `SessionImpl` cannot be constructed in a `qbt_base` test without a new application-session fixture. Verify every branch above through the individually enumerated Epic 2 integration scenarios at the commit boundary; do not add a test-only session abstraction in this submission.
+
+*   `[X]` [UI] src/gui/`unmatchedtorrentsdialog` — add `UnmatchedTorrentsDialog`, listing torrents that matched nothing and walking them one at a time into a **Choose save path** dialog that assigns each chosen location through `Session::assignTorrentLocation()`, or closing to abandon the rest. T14
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: a batch that matches nothing for several torrents would otherwise open one file dialog per torrent in succession, with no way to see the set, choose the order, or stop.
+        *   `[X]` Functional: list the unmatched torrents by name; for the selected entry, open a directory dialog starting at its save path, and on an existing directory assign that location and remove the entry; close once no entry remains.
+        *   `[X]` Functional: closing the dialog abandons the remaining entries, assigning nothing further.
+        *   `[X]` Non-functional: every string is translatable, and the list and its buttons are reachable and operable by keyboard.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/gui`, a window-modal dialog opened with `open()` by the `transferlistwidget` node.
+        *   `[X]` Out of scope: discovery, assignment and the start decision, which the `sessionimpl` node performs behind `assignTorrentLocation()`; deciding which torrents are unmatched.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the list of unmatched torrent IDs, their rows, the directory dialog and the hand-off of a chosen location. Outside: what assignment does.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/bittorrent/session.h` — `BitTorrent::Session::instance()`, `Session::getTorrent()`, `Session::assignTorrentLocation()` and the existing `torrentAboutToBeRemoved` signal. A lower layer, depended on inward.
+        *   `[X]` `base/bittorrent/torrent.h` — `Torrent::name()` and `Torrent::savePath()`.
+        *   `[X]` `base/bittorrent/infohash.h` — `BitTorrent::TorrentID`.
+        *   `[X]` `base/path.h` — `Path`, `Path::exists()` and `Path::data()`.
+        *   `[X]` `ui_unmatchedtorrentsdialog.h` — generated from `unmatchedtorrentsdialog.ui`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `TransferListWidget::setSelectedTorrentsLocation()` is the model for the directory dialog: a heap `QFileDialog` titled `tr("Choose save path")` with `Qt::WA_DeleteOnClose`, `QFileDialog::Directory`, `QFileDialog::DontConfirmOverwrite | QFileDialog::ShowDirsOnly | QFileDialog::HideNameFilterDetails`, `&QDialog::accepted` reading `selectedFiles().constFirst()` into a `Path` that must exist, and `open()`. `TorrentCategoryDialog` is the model for the class: a forward-declared `Ui` class, a raw `m_ui` created in the constructor's initialiser list and deleted in the destructor, and the generated header included by the `.cpp`.
+
+    *   `[X]` src/gui/`unmatchedtorrentsdialog.h`
+        *   `[X]` New file: the licence header of `torrentcategorydialog.h` naming the contributor, `#pragma once`, `#include <QDialog>`, `#include <QList>` and `#include "base/bittorrent/infohash.h"`, then `namespace Ui { class UnmatchedTorrentsDialog; }`.
+        *   `[X]` `class UnmatchedTorrentsDialog final : public QDialog` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(UnmatchedTorrentsDialog)`, declaring public `UnmatchedTorrentsDialog(QWidget *parent, const QList<BitTorrent::TorrentID> &torrentIDs);`, `~UnmatchedTorrentsDialog() override;` and `bool isEmpty() const;`, private `void setCurrentTorrentLocation();` and `void removeTorrent(const BitTorrent::TorrentID &id);`, and private members `Ui::UnmatchedTorrentsDialog *m_ui = nullptr;` and `QList<BitTorrent::TorrentID> m_torrentIDs;`.
+
+    *   `[X]` src/gui/`unmatchedtorrentsdialog.ui`
+        *   `[X]` New file in the form of `deletionconfirmationdialog.ui`: class `UnmatchedTorrentsDialog`, a `QDialog` named `UnmatchedTorrentsDialog` with `windowTitle` `Find location`, laid out by a `QVBoxLayout` named `verticalLayout` holding three items in order.
+        *   `[X]` A `QLabel` named `labelUnmatched` with `text` `No existing content was found for these torrents. Set a location for each, or close to leave them where they are.` and `wordWrap` `true`.
+        *   `[X]` A `QListWidget` named `listTorrents`.
+        *   `[X]` A `QDialogButtonBox` named `buttonBox` with `orientation` `Qt::Orientation::Horizontal` and `standardButtons` `QDialogButtonBox::StandardButton::Close`.
+
+    *   `[X]` `construction`
+        *   `[X]` The constructor takes the parent and the unmatched IDs and leaves the dialog complete: every row populated, the first row current, and every connection made. The caller sets `Qt::WA_DeleteOnClose` and calls `open()`.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Constructor: `m_ui->setupUi(this)`; for each ID in order, `BitTorrent::Session::instance()->getTorrent(id)` non-null → append the ID to `m_torrentIDs` and add a row to `listTorrents` holding `torrent->name()`; null → skip it. Then `listTorrents->setCurrentRow(0)`.
+        *   `[X]` Constructor: store `m_ui->buttonBox->addButton(tr("Set location..."), QDialogButtonBox::ActionRole)` in a local `QPushButton *setLocationButton`; connect its `&QAbstractButton::clicked` to `setCurrentTorrentLocation`, `&QListWidget::itemDoubleClicked` to `setCurrentTorrentLocation`, and `&QDialogButtonBox::rejected` to `&QDialog::reject`. Connect `&QListWidget::currentRowChanged` to a lambda with `this` as its context that sets `setLocationButton` enabled exactly when the row is at least 0, then set its initial enabled state from `listTorrents->currentRow()`.
+        *   `[X]` Constructor: connect `BitTorrent::Session::torrentAboutToBeRemoved` to a lambda with `this` as its context that calls `removeTorrent(torrent->id())`. This removes a live dialog row before its torrent becomes invalid and closes the dialog when that was its final row.
+        *   `[X]` `isEmpty()` returns `m_torrentIDs.isEmpty()`.
+        *   `[X]` `setCurrentTorrentLocation()`: `currentRow()` below 0 → return. The ID at that row with no torrent under it in the session → `removeTorrent(id)` and return. Otherwise open the directory dialog per the context slice, starting at `torrent->savePath().data()`.
+        *   `[X]` Connect the directory dialog's `&QDialog::accepted` signal with `this` as the context and capture the dialog pointer and ID. In the handler, the selected `Path` does not exist → return, the entry kept. It exists and `m_torrentIDs` still holds the ID → `BitTorrent::Session::instance()->assignTorrentLocation(id, newLocation)` then `removeTorrent(id)`.
+        *   `[X]` `removeTorrent(id)`: `m_torrentIDs.indexOf(id)` below 0 → return. Otherwise remove and delete that row from `listTorrents` with `takeItem()`, remove the ID from `m_torrentIDs`, and call `accept()` when the list becomes empty.
+        *   `[X]` `&QDialog::rejected`, from **Close**, the window's close control or Escape, closes the dialog with no further assignment.
+
+    *   `[X]` src/gui/`unmatchedtorrentsdialog.cpp`
+        *   `[X]` New file: the licence header of `torrentcategorydialog.cpp` naming the contributor, `#include "unmatchedtorrentsdialog.h"`, then `#include <QFileDialog>`, `#include <QListWidget>` and `#include <QPushButton>`, then `#include "base/bittorrent/session.h"`, `#include "base/bittorrent/torrent.h"`, `#include "base/path.h"` and `#include "ui_unmatchedtorrentsdialog.h"`.
+        *   `[X]` Define the constructor, the destructor deleting `m_ui`, `isEmpty()`, `setCurrentTorrentLocation()` and `removeTorrent()` per the interaction spec.
+
+    *   `[X]` src/gui/`CMakeLists.txt`
+        *   `[X]` Add `unmatchedtorrentsdialog.ui` to `qt_wrap_ui(UI_HEADERS ...)` after `uithemedialog.ui`, `unmatchedtorrentsdialog.h` to the headers of `add_library(qbt_gui ...)` after `uithemesource.h`, and `unmatchedtorrentsdialog.cpp` to its sources after `uithemesource.cpp`.
+
+    *   `[X]` `directionality`
+        *   `[X]` `unmatchedtorrentsdialog` in `src/gui` depends downward on `session`, `torrent` and `path` in `src/base`. Only `transferlistwidget` depends on it.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-9: unmatched torrents are presented as a list the user walks one entry at a time or abandons with **Close**.
+        *   `[X]` IF-11: the dialog assigns through `Session::assignTorrentLocation()`.
+        *   `[X]` IF-12: `uic` routes the `.ui` strings through `tr()`, and the button text is wrapped in `tr()`.
+        *   `[X]` BT-2: the three files are registered in `src/gui/CMakeLists.txt`.
+        *   `[X]` `listTorrents` activates a row with a double click, and every control, including the **Set location...** button, is reachable by Tab.
+        *   `[X]` No empty dialog is opened or left open: the transfer-list node filters removed torrents before choosing the fallback and deletes a newly constructed `UnmatchedTorrentsDialog` without opening it when `isEmpty()` is true; the dialog removes a row on `torrentAboutToBeRemoved` and accepts itself when no row remains.
+        *   `[X]` Verify the dialog through Epic 2 integration scenario 5 at the commit boundary.
+
+*   `[X]` [UI] src/gui/`transferlistwidget` — add **Find location** beside **Set location...** while the **Find location** group is enabled, run `Session::findTorrentLocation()` for each selected torrent holding metadata, assign each match through `Session::assignTorrentLocation()` as its outcome arrives, and, once every outcome has arrived, open **Choose save path** for a single miss or `UnmatchedTorrentsDialog` for several. T13, T14
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: a torrent already in the session reaches discovery only through the add path, so a user holding torrents placed at the wrong location repairs each by hand.
+        *   `[X]` Functional: a context menu action over one or many selected torrents that runs discovery for each torrent holding metadata and assigns every location found, as each outcome arrives.
+        *   `[X]` Functional: while an operation is active, another invocation adds only previously unseen torrent IDs to it; an ID already pending, matched or unmatched is not searched again. Once no submitted torrent remains pending, one valid torrent without a match opens the **Choose save path** dialog for it, more than one opens `UnmatchedTorrentsDialog`, and zero opens nothing.
+        *   `[X]` Non-functional: the transfer list stays interactive while outcomes arrive; the action is absent while the **Find location** group is disabled.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/gui`, the transfer list and its context menu.
+        *   `[X]` Out of scope: discovery, assignment, rechecking and the start decision, which are the `sessionimpl` node; the unmatched list, which is the `unmatchedtorrentsdialog` node.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the action, one operation map holding each submitted torrent's result state, merging another invocation into that operation, and dispatching misses. Outside: how a location is found and what assignment does.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/bittorrent/session.h` — `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, `Session::getTorrent()` and the `torrentLocationFound` signal, from the `sessionimpl` node. Already included by `transferlistwidget.cpp`.
+        *   `[X]` `unmatchedtorrentsdialog.h` — `UnmatchedTorrentsDialog`, from the `unmatchedtorrentsdialog` node.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `TransferListWidget::displayListMenu()` constructs every action before deciding which to add, computing `oneHasMetadata` over the selection, and adds `actionSetTorrentPath` after the separator that follows `actionDelete`. `setSelectedTorrentsLocation()` is the model for the directory dialog. The mnemonic letters of the menu's other top-level entries leave `i` free.
+
+    *   `[X]` src/gui/`transferlistwidget.h`
+        *   `[X]` Add `#include <QHash>` after `#include <QtContainerFwd>`.
+        *   `[X]` In `public slots`, after `void setSelectedTorrentsLocation();`, add `void findSelectedTorrentsLocation();`.
+        *   `[X]` In the `private` section, after `void exportTorrent();`, add `void handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, bool found);` and `void askTorrentLocation(const BitTorrent::TorrentID &id);`.
+        *   `[X]` Find the `private:` label directly above `void dragEnterEvent(QDragEnterEvent *event) override;`. On the line directly after that label, insert `enum class FindLocationState { Pending, Matched, Unmatched };`, followed by one blank line. The existing declarations follow unchanged.
+        *   `[X]` After `TransferListSortModel *m_sortFilterModel = nullptr;`, add `QHash<BitTorrent::TorrentID, FindLocationState> m_findLocationOperation;`. An empty map is no active operation; non-empty states remain in the map until that operation finalises.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Constructor: after the `sortIndicatorChanged` connection, `connect(BitTorrent::Session::instance(), &BitTorrent::Session::torrentLocationFound, this, &TransferListWidget::handleTorrentLocationFound);`.
+        *   `[X]` `displayListMenu()`: `actionFindLocation` is a `QAction` with `UIThemeManager::instance()->getIcon(u"edit-find"_s)` and `tr("F&ind location")`, constructed after `actionSetTorrentPath` and connected to `findSelectedTorrentsLocation`. After `listMenu->addAction(actionSetTorrentPath);`, `oneHasMetadata` true and `BitTorrent::Session::instance()->isFindLocationEnabled()` true → `listMenu->addAction(actionFindLocation)`; otherwise it is not added.
+        *   `[X]` `findSelectedTorrentsLocation()`: create a local `QList<TorrentID> submitted`. In a first pass over `getSelectedTorrents()`, no metadata → skip; its ID already in `m_findLocationOperation` → skip; otherwise insert the ID into `m_findLocationOperation` with `FindLocationState::Pending` and append it to `submitted`. In a second pass over `submitted`, call `BitTorrent::Session::instance()->findTorrentLocation(id)` for each ID. Register the complete invocation before the first call so a synchronous invalid-torrent outcome cannot finalise and clear the operation while later IDs from the same invocation remain unregistered. A call made while the map is non-empty adds its unseen IDs to that operation.
+        *   `[X]` `handleTorrentLocationFound(id, location, found)`: no map entry for `id`, or its state is not `Pending` → return. `found` true → set the state to `Matched` then call `BitTorrent::Session::instance()->assignTorrentLocation(id, location)`; `found` false → set the state to `Unmatched`.
+        *   `[X]` If any mapped state remains `Pending`, return. Otherwise build `QList<TorrentID> unmatched` from the entries whose state is `Unmatched` and whose torrent still exists in the session, then clear `m_findLocationOperation`. Zero unmatched entries → return. One → call `askTorrentLocation()` for it. More than one → construct `UnmatchedTorrentsDialog(this, unmatched)`; `dialog->isEmpty()` true → delete it and return; otherwise set `Qt::WA_DeleteOnClose` and call `open()`.
+        *   `[X]` `askTorrentLocation(id)`: no torrent under `id` in the session → return. Otherwise create the directory dialog of `setSelectedTorrentsLocation()`, starting at that torrent's `savePath().data()`. Connect its `&QDialog::accepted` signal with `this` as the context and capture the dialog pointer and ID; on an existing selected `Path`, call `BitTorrent::Session::instance()->assignTorrentLocation(id, newLocation)`.
+
+    *   `[X]` src/gui/`transferlistwidget.cpp`
+        *   `[X]` Add `#include "unmatchedtorrentsdialog.h"` after `#include "uithememanager.h"`.
+        *   `[X]` Add the constructor connection and the `displayListMenu()` action per the interaction spec.
+        *   `[X]` Define `TransferListWidget::findSelectedTorrentsLocation()` after `TransferListWidget::setSelectedTorrentsLocation()`, and `handleTorrentLocationFound()` and `askTorrentLocation()` after it, per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` `transferlistwidget` depends downward on `Session` in `src/base`, as it already does, and beside it on `unmatchedtorrentsdialog`. It never names `SessionImpl`; its pre-existing uses of `Preferences` are unchanged.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-7: **Find location** sits directly after **Set location...** over single and multiple selections.
+        *   `[X]` IF-8: a single torrent without a match opens the **Choose save path** dialog that **Set location...** opens.
+        *   `[X]` IF-9: several torrents without a match open `UnmatchedTorrentsDialog`.
+        *   `[X]` IF-11: every call reaches discovery and assignment through `BitTorrent::Session`.
+        *   `[X]` IF-13: each match is assigned as its own outcome arrives, before the batch completes.
+        *   `[X]` Repeated invocations during an active operation merge unseen IDs into it; an ID already marked `Pending`, `Matched` or `Unmatched` is not searched twice in that operation.
+        *   `[X]` ST-2: the action is absent while `isFindLocationEnabled()` is false.
+        *   `[X]` IF-12: the action text is wrapped in `tr()`.
+        *   `[X]` Verify the action through Epic 2 integration scenarios 4 and 5 at the commit boundary.
+
+*   `[X]` [UI] src/gui/`optionsdialog` — add `checkFindLocationOnStart`, `checkFindLocationRecheck`, `checkFindLocationSeed` and `checkFindLocationLeech` to `groupFindLocation`, each loaded from and saved to `BitTorrent::Session`, with the seed and leech checkboxes enabled only while `checkFindLocationRecheck` is checked. T15
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the pending-Start gate and the three assignment settings have no desktop control.
+        *   `[X]` Functional: four checkboxes within the **Find location** group presenting **Find location when starting stopped torrents**, **Recheck automatically**, **Seed automatically** and **Leech automatically**. A change to any enables **Apply**, and all four are written when the page is applied.
+        *   `[X]` Functional: **Seed automatically** and **Leech automatically** are enabled only while **Recheck automatically** is checked, and unchecking the group disables all four; neither change alters a checkbox's value.
+        *   `[X]` Non-functional: every label and tooltip is translatable, and every control is a standard widget reachable by keyboard.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/gui`.
+        *   `[X]` Out of scope: the web interface, which is the `appcontroller` and `preferences.html` nodes; what the settings cause.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: four widgets, their loading, saving, enablement and enabling of **Apply**. Outside: what each setting causes.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/bittorrent/session.h` — the eight Epic 2 setting accessors from the `sessionimpl` node, already included by `optionsdialog.cpp`.
+        *   `[X]` `ui_optionsdialog.h` — generated from `optionsdialog.ui`, providing the four checkboxes.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `groupFindLocation` and its `QVBoxLayout` `groupFindLocationLayout`, holding `checkFindLocationOnAdd`, and the load, connection and save statements for both, are those the first epic's `optionsdialog` node adds to `optionsdialog.ui` and to `OptionsDialog::loadDownloadsTabOptions()` and `OptionsDialog::saveDownloadsTabOptions()`. `connect(m_ui->backupDirCheckBox, &QAbstractButton::toggled, m_ui->backupDirPathEdit, &QWidget::setEnabled);`, with `backupDirPathEdit->setEnabled(backupDirCheckBox->isChecked())` at load, is the precedent for a checkbox enabling another control.
+        *   `[X]` A checkable `QGroupBox` re-enabling its children on being checked leaves a child disabled through `setEnabled(false)` disabled, so the recheck dependency survives the group being unchecked and checked again.
+
+    *   `[X]` src/gui/`optionsdialog.ui`
+        *   `[X]` In `groupFindLocationLayout`, after the item holding `checkFindLocationOnAdd`, add four items in order, each a `QCheckBox`.
+        *   `[X]` `checkFindLocationOnStart`, with `text` `Find location when starting stopped torrents` and `toolTip` `Search for existing content before starting a stopped torrent.`
+        *   `[X]` `checkFindLocationRecheck`, with `text` `Recheck automatically` and `toolTip` `When a location is assigned by Find location, recheck the torrent's files there.`
+        *   `[X]` `checkFindLocationSeed`, with `text` `Seed automatically` and `toolTip` `When that recheck finds the torrent's content complete, start the torrent.`
+        *   `[X]` `checkFindLocationLeech`, with `text` `Leech automatically` and `toolTip` `When that recheck finds the torrent's content incomplete, start the torrent.`
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Load: immediately before `m_ui->groupFindLocation->setChecked(session->isFindLocationEnabled());`, call `m_ui->checkFindLocationOnStart->setChecked(session->isFindLocationOnStartEnabled());`, `m_ui->checkFindLocationRecheck->setChecked(session->isFindLocationRecheckEnabled());`, `m_ui->checkFindLocationSeed->setChecked(session->isFindLocationSeedEnabled());` and `m_ui->checkFindLocationLeech->setChecked(session->isFindLocationLeechEnabled());` in that order, then call `m_ui->checkFindLocationSeed->setEnabled(m_ui->checkFindLocationRecheck->isChecked());` and `m_ui->checkFindLocationLeech->setEnabled(m_ui->checkFindLocationRecheck->isChecked());`.
+        *   `[X]` Connect: after `connect(m_ui->checkFindLocationOnAdd, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);`, add `connect(m_ui->checkFindLocationOnStart, &QAbstractButton::toggled, this, &ThisType::enableApplyButton);`, `connect(m_ui->checkFindLocationRecheck, &QAbstractButton::toggled, m_ui->checkFindLocationSeed, &QWidget::setEnabled);`, `connect(m_ui->checkFindLocationRecheck, &QAbstractButton::toggled, m_ui->checkFindLocationLeech, &QWidget::setEnabled);`, then one connection from each of `checkFindLocationRecheck`, `checkFindLocationSeed` and `checkFindLocationLeech` to `this, &ThisType::enableApplyButton` using `&QAbstractButton::toggled`.
+        *   `[X]` Save: after `session->setFindLocationOnAddEnabled(m_ui->checkFindLocationOnAdd->isChecked());`, call `session->setFindLocationOnStartEnabled(m_ui->checkFindLocationOnStart->isChecked());`, `session->setFindLocationRecheckEnabled(m_ui->checkFindLocationRecheck->isChecked());`, `session->setFindLocationSeedEnabled(m_ui->checkFindLocationSeed->isChecked());` and `session->setFindLocationLeechEnabled(m_ui->checkFindLocationLeech->isChecked());` in that order. A disabled checkbox keeps its checked state and is saved with it.
+
+    *   `[X]` src/gui/`optionsdialog.cpp`
+        *   `[X]` Add the load, connection and save statements per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` `optionsdialog` in `src/gui` depends on `BitTorrent::Session` in `src/base`, downward, as it already does.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-2: `checkFindLocationSeed` and `checkFindLocationLeech` are enabled exactly while `checkFindLocationRecheck` is checked and the group is checked.
+        *   `[X]` ST-3: unchecking the group or `checkFindLocationRecheck` changes no checkbox's value, and applying writes each value unchanged.
+        *   `[X]` IF-14: `checkFindLocationOnStart` carries the exact accepted label and persists independently of the other four settings in the group.
+        *   `[X]` IF-12: `uic` routes the eight `.ui` strings through `tr()`.
+        *   `[X]` Verify the dialog through Epic 2 integration scenario 6 at the commit boundary.
+
+*   `[X]` [API] src/webui/api/`appcontroller` — expose `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on `app/preferences` and `app/setPreferences`, read from and written to `BitTorrent::Session`. T15
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the pending-Start gate and the three assignment settings are reachable only from the desktop dialog, so the headless daemon and remote clients can neither read nor change them.
+        *   `[X]` Functional: `app/preferences` returns all four as booleans; `app/setPreferences` sets each when its key is present and leaves it untouched when its key is absent.
+
+    *   `[X]` `role`
+        *   `[X]` WebAPI controller in `src/webui/api`.
+        *   `[X]` Out of scope: the web page, which is the `preferences.html` node; the changelog, which is the `WebAPI_Changelog` node; `API_VERSION`, which the maintainers set.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: four keys in two actions. Outside: what each setting causes, and how each is presented.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/bittorrent/session.h` — the eight Epic 2 setting accessors from the `sessionimpl` node, already included by `appcontroller.cpp`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `find_location_enabled` and `find_location_on_add_enabled`, added by the first epic's `appcontroller` node after `use_unwanted_folder` in `AppController::preferencesAction()` and `AppController::setPreferencesAction()`, are the model and the anchor.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `preferencesAction()`: after `find_location_on_add_enabled`, add `data[u"find_location_on_start_enabled"_s] = session->isFindLocationOnStartEnabled();`, `data[u"find_location_recheck_enabled"_s] = session->isFindLocationRecheckEnabled();`, `data[u"find_location_seed_enabled"_s] = session->isFindLocationSeedEnabled();` and `data[u"find_location_leech_enabled"_s] = session->isFindLocationLeechEnabled();` in that order.
+        *   `[X]` `setPreferencesAction()`: after the `find_location_on_add_enabled` branch, add `if (hasKey(u"find_location_on_start_enabled"_s))` followed by `session->setFindLocationOnStartEnabled(it.value().toBool());`; then the same two lines using `find_location_recheck_enabled`/`setFindLocationRecheckEnabled`, `find_location_seed_enabled`/`setFindLocationSeedEnabled` and `find_location_leech_enabled`/`setFindLocationLeechEnabled`, in that order and with the existing indentation. An absent key makes no setter call.
+
+    *   `[X]` src/webui/api/`appcontroller.cpp`
+        *   `[X]` In `preferencesAction()`, after `data[u"find_location_on_add_enabled"_s] = session->isFindLocationOnAddEnabled();`, add the four assignments from the interaction spec in OnStart, recheck, seed and leech order.
+        *   `[X]` In `setPreferencesAction()`, after the `find_location_on_add_enabled` branch, add the four `hasKey()` branches from the interaction spec in OnStart, recheck, seed and leech order.
+
+    *   `[X]` `directionality`
+        *   `[X]` `appcontroller` in `src/webui` depends on `BitTorrent::Session` in `src/base`, downward, as it already does.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-4, IF-14: all four settings are exposed on `app/preferences` and `app/setPreferences`.
+        *   `[X]` ST-3: each key writes only its own setting.
+        *   `[X]` CN-5: a request omitting any of the keys leaves that setting unchanged.
+        *   `[X]` Verify the endpoints through Epic 2 integration scenario 6 at the commit boundary.
+
+*   `[X]` [UI] src/webui/www/private/views/`preferences.html` — add `findLocationOnStartCheckbox`, `findLocationRecheckCheckbox`, `findLocationSeedCheckbox` and `findLocationLeechCheckbox` to the **Find location** fieldset, loaded from and saved to the four Epic 2 keys, with `updateFindLocationEnabled()` enforcing the group and recheck dependencies. T15
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the pending-Start and three assignment keys have no control in the web interface, so a user of the headless daemon can set them only by request.
+        *   `[X]` Functional: four checkboxes within the **Find location** fieldset presenting the four Epic 2 keys, loaded when the page loads and sent when it is saved.
+        *   `[X]` Functional: OnStart and recheck are disabled while the legend checkbox is unchecked; seed and leech are disabled while either the legend or recheck is unchecked; disabled values are still sent unchanged.
+        *   `[X]` Non-functional: every label passes through `QBT_TR` in the `OptionsDialog` context with the same source string as the corresponding desktop label. The web interface extracts the strings into `src/webui/www/translations/webui_*.ts`; the desktop extracts them separately into `src/lang`.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/webui/www`.
+        *   `[X]` Out of scope: the keys and their endpoints, which are the `appcontroller` node; the translation files, which the project's translation process maintains.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: four form rows, the enablement handler, and the load and save statements. Outside: what each setting causes.
+
+    *   `[X]` `deps`
+        *   `[X]` `app/preferences`, returning `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled`, read from `pref` with those exact property names.
+        *   `[X]` `app/setPreferences`, receiving the same four exact keys in `settings`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The **Find location** fieldset holding `findLocationCheckbox` and `findLocationOnAddCheckbox`, the handler `updateFindLocationEnabled` exported through `exports`, its load and save statements, and its call after loading are those the first epic's `preferences.html` node adds.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `updateFindLocationEnabled()` reads `findLocationCheckbox.checked` as `groupEnabled` and `findLocationRecheckCheckbox.checked` as `recheckEnabled`; it sets `findLocationOnAddCheckbox.disabled`, `findLocationOnStartCheckbox.disabled` and `findLocationRecheckCheckbox.disabled` to `!groupEnabled`, and sets seed and leech disabled to `!(groupEnabled && recheckEnabled)`.
+        *   `[X]` It runs from the `onclick` of `findLocationCheckbox` and `findLocationRecheckCheckbox`, and once after all six checkboxes are loaded.
+
+    *   `[X]` src/webui/www/private/views/`preferences.html`
+        *   `[X]` Markup: after the `findLocationOnAddCheckbox` row, add four `<div class="formRow">` elements. The first holds `<input type="checkbox" id="findLocationOnStartCheckbox" title="QBT_TR(Search for existing content before starting a stopped torrent.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationOnStartCheckbox">QBT_TR(Find location when starting stopped torrents)QBT_TR[CONTEXT=OptionsDialog]</label>`.
+        *   `[X]` The second row holds `<input type="checkbox" id="findLocationRecheckCheckbox" title="QBT_TR(When a location is assigned by Find location, recheck the torrent's files there.)QBT_TR[CONTEXT=OptionsDialog]" onclick="qBittorrent.Preferences.updateFindLocationEnabled();">` and `<label for="findLocationRecheckCheckbox">QBT_TR(Recheck automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`.
+        *   `[X]` The third row holds `<input type="checkbox" id="findLocationSeedCheckbox" title="QBT_TR(When that recheck finds the torrent's content complete, start the torrent.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationSeedCheckbox">QBT_TR(Seed automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`.
+        *   `[X]` The fourth row holds `<input type="checkbox" id="findLocationLeechCheckbox" title="QBT_TR(When that recheck finds the torrent's content incomplete, start the torrent.)QBT_TR[CONTEXT=OptionsDialog]">` and `<label for="findLocationLeechCheckbox">QBT_TR(Leech automatically)QBT_TR[CONTEXT=OptionsDialog]</label>`. Indent all four rows exactly as the existing OnAdd row.
+        *   `[X]` Handler: rewrite the body of `updateFindLocationEnabled` per the interaction spec.
+        *   `[X]` Load: after `document.getElementById("findLocationOnAddCheckbox").checked = pref.find_location_on_add_enabled;` and before `updateFindLocationEnabled();`, assign `pref.find_location_on_start_enabled`, `pref.find_location_recheck_enabled`, `pref.find_location_seed_enabled` and `pref.find_location_leech_enabled` to the checked properties of `findLocationOnStartCheckbox`, `findLocationRecheckCheckbox`, `findLocationSeedCheckbox` and `findLocationLeechCheckbox`, respectively and in that order.
+        *   `[X]` Save: after `settings["find_location_on_add_enabled"] = document.getElementById("findLocationOnAddCheckbox").checked;`, assign the checked properties of the same four checkbox IDs to `settings["find_location_on_start_enabled"]`, `settings["find_location_recheck_enabled"]`, `settings["find_location_seed_enabled"]` and `settings["find_location_leech_enabled"]`, respectively and in that order.
+
+    *   `[X]` `directionality`
+        *   `[X]` The page consumes the WebAPI and adds no dependency beyond the four keys the `appcontroller` node provides.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-5, IF-14: all four settings have a control on the web interface preferences page.
+        *   `[X]` IF-2: the web controls honour the recheck dependency the options dialog enforces.
+        *   `[X]` IF-12: every label is wrapped in `QBT_TR` in the `OptionsDialog` context and is extracted into the WebUI translation catalogs independently of the desktop catalogs.
+        *   `[X]` ST-3: a disabled checkbox keeps its `checked` state and is sent unchanged.
+        *   `[X]` The `CI - WebUI` workflow's `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
+        *   `[X]` Verify the page through Epic 2 integration scenario 6 at the commit boundary.
+
+*   `[X]` [API] src/webui/api/`torrentscontroller` — add `torrents/findLocation`, running discovery for the named torrents holding metadata through `Session::findTorrentLocation()`, assigning each match through `Session::assignTorrentLocation()` as its outcome arrives, and answering HTTP 202 until no torrent of the web session's operation is pending; and `torrents/assignLocation`, assigning a named existing directory through `Session::assignTorrentLocation()`. T23
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: discovery and assignment for torrents already in the session are reachable only from the desktop transfer list, so a user of the web interface or the headless daemon can neither run **Find location** nor assign a location as **Find location** assigns one.
+        *   `[X]` Functional: for the torrents a request names, run discovery for each holding metadata, assign every match as its outcome arrives, and answer with the operation pending while any torrent is, then with the torrents assigned and those that matched nothing once none is.
+        *   `[X]` Functional: a request naming torrents already in the web session's active operation searches none of them again, a request naming new torrents merges them into it, and a request naming none reports the operation without starting anything.
+        *   `[X]` Functional: assign a location a request names to the torrents it names, through the assignment a found location receives.
+        *   `[X]` Non-functional: neither action waits for a probe, and both are accepted by POST alone.
+
+    *   `[X]` `role`
+        *   `[X]` WebAPI controller in `src/webui/api`, one instance per web session.
+        *   `[X]` Out of scope: discovery, assignment, recheck and the start decision, which are the `sessionimpl` node; presentation, which is the `mocha-init.js`, `setlocation.html` and `unmatchedtorrents.html` nodes; the changelog, which is the `WebAPI_Changelog` node.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the two actions, one operation map holding each registered torrent's result, merging a request into the active operation, and the answer. Outside: how a location is found and what assignment does.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/bittorrent/session.h` — `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, `Session::getTorrent()`, `Session::isFindLocationEnabled()` and the `torrentLocationFound` signal, from the `sessionimpl` nodes. Already included by `torrentscontroller.cpp`.
+        *   `[X]` `base/path.h` — `Path`, `Path::isEmpty()` and `Path::toString()`, held by value in the operation map.
+        *   `[X]` `base/utils/fs.h` — `Utils::Fs::isDir()`. Already included by `torrentscontroller.cpp`.
+        *   `[X]` `webapplication.h` — `WebApplication::m_allowedMethod`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `WebApplication` registers a factory creating `TorrentsController` for each `WebSession`, which creates it on first use, so its members live as long as the web session. The constructor connects `Session::metadataDownloaded` to `onMetadataDownloaded()`, which fills `m_torrentMetadataCache`; `fetchMetadataAction()` answers from that cache and calls `setStatus(APIStatus::Async)` while metadata is outstanding, and `WebApplication` answers `APIStatus::Async` with HTTP 202.
+        *   `[X]` `applyToTorrents()` takes the `hashes` parameter split on `|`, treats a single `all` as every torrent, and skips an ID naming no torrent. `setLocationAction()` requires `hashes` and `location` and throws `APIError(APIErrorType::BadParams, tr("Save path cannot be empty"))` for an empty location. `APIErrorType::BadParams` answers HTTP 400 and `APIErrorType::Conflict` HTTP 409.
+        *   `[X]` `m_allowedMethod` in `webapplication.h` lists the POST-only actions by scope and then action name, in alphabetical order.
+        *   `[X]` `TransferListWidget::handleTorrentLocationFound()` acts only on IDs its own operation holds as pending, so a desktop operation and a web session operation searching one torrent each act on their own result, and `SessionImpl::assignTorrentLocation()` coalesces an assignment of the location already being assigned.
+
+    *   `[X]` src/webui/api/`torrentscontroller.h`
+        *   `[X]` After `#include "base/bittorrent/torrentdescriptor.h"`, add `#include "base/path.h"`.
+        *   `[X]` In `private slots`, after `void setLocationAction();`, add `void findLocationAction();` then `void assignLocationAction();`.
+        *   `[X]` In `private`, before `void onDownloadFinished(const Net::DownloadResult &result);`, add `enum class FindLocationState { Pending, Matched, Unmatched };` and `struct FindLocationEntry { FindLocationState state = FindLocationState::Pending; Path location; };`, one declaration per line, followed by one blank line.
+        *   `[X]` After `void onSearchPluginTorrentDownloaded(const QString &source, const QString &data);`, add `void onTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, bool found);`.
+        *   `[X]` After `QSet<QString> m_invalidTorrentSource;`, add `QHash<BitTorrent::TorrentID, FindLocationEntry> m_findLocationOperation;`. An empty map is no active operation.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Constructor: after the `metadataDownloaded` connection, `connect(BitTorrent::Session::instance(), &BitTorrent::Session::torrentLocationFound, this, &TorrentsController::onTorrentLocationFound);`.
+        *   `[X]` `findLocationAction()`: `!BitTorrent::Session::instance()->isFindLocationEnabled()` → `throw APIError(APIErrorType::Conflict, tr("Find location is disabled"))`. Create a local `QList<BitTorrent::TorrentID> submitted`. When `params()[u"hashes"_s]` is non-empty, `applyToTorrents()` over it split on `|`: a torrent without metadata → skip; its ID already in `m_findLocationOperation` → skip; otherwise insert `FindLocationEntry {}` under its ID and append the ID to `submitted`. Then call `BitTorrent::Session::instance()->findTorrentLocation(id)` for each ID in `submitted`, so every ID of the request is registered before the first search is issued.
+        *   `[X]` `findLocationAction()` answer: iterate `m_findLocationOperation` into three `QJsonArray`s. A `Pending` entry appends `id.toString()` to `pending`; a `Matched` entry appends `QJsonObject {{u"hash"_s, id.toString()}, {u"location"_s, entry.location.toString()}}` to `matched`; an `Unmatched` entry appends `id.toString()` to `unmatched` only while `BitTorrent::Session::instance()->getTorrent(id)` is non-null. `setResult(QJsonObject {{u"pending"_s, pending}, {u"matched"_s, matched}, {u"unmatched"_s, unmatched}})`. A non-empty `pending` → `setStatus(APIStatus::Async)`; otherwise `m_findLocationOperation.clear()`, ending the operation.
+        *   `[X]` `onTorrentLocationFound(id, location, found)`: no entry for `id`, or an entry whose state is not `Pending` → return. `found` true → set the entry's state to `Matched` and its location to `location`, then call `BitTorrent::Session::instance()->assignTorrentLocation(id, location)`; `found` false → set its state to `Unmatched`.
+        *   `[X]` `assignLocationAction()`: `requireParams({u"hashes"_s, u"location"_s})`; `const Path location {params()[u"location"_s].trimmed()};`. An empty location → `throw APIError(APIErrorType::BadParams, tr("Save path cannot be empty"))`; `!Utils::Fs::isDir(location)` → `throw APIError(APIErrorType::Conflict, tr("Location does not exist"))`. Otherwise `applyToTorrents()` over `params()[u"hashes"_s].split(u'|')` calls `BitTorrent::Session::instance()->assignTorrentLocation(torrent->id(), location)` for each torrent, then `setResult(QString())`. Nothing is created.
+
+    *   `[X]` src/webui/api/`torrentscontroller.cpp`
+        *   `[X]` Add the constructor connection per the interaction spec.
+        *   `[X]` Define `TorrentsController::findLocationAction()` and `TorrentsController::assignLocationAction()` after `TorrentsController::setLocationAction()`, and `TorrentsController::onTorrentLocationFound()` after `TorrentsController::onMetadataDownloaded()`, per the interaction spec.
+
+    *   `[X]` src/webui/`webapplication.h`
+        *   `[X]` In `m_allowedMethod`, add `{{u"torrents"_s, u"assignLocation"_s}, Http::HEADER_REQUEST_METHOD_POST},` after the `addWebSeeds` entry and `{{u"torrents"_s, u"findLocation"_s}, Http::HEADER_REQUEST_METHOD_POST},` after the `filePrio` entry.
+
+    *   `[X]` `directionality`
+        *   `[X]` `torrentscontroller` in `src/webui` depends downward on `Session` in `src/base`, as it already does. It never names `SessionImpl` or anything in `src/gui`.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-17: `torrents/findLocation` registers, searches, assigns and answers as specified, including HTTP 409 while the group is disabled and a request without `hashes` registering nothing.
+        *   `[X]` IF-18: `torrents/assignLocation` answers HTTP 400 for an empty location and HTTP 409 for one that is not an existing directory, and creates nothing.
+        *   `[X]` IF-11: both actions reach discovery and assignment through `BitTorrent::Session`.
+        *   `[X]` IF-13: each outcome is handled as its `torrentLocationFound` signal arrives, so each match is assigned before the operation completes.
+        *   `[X]` RL-4: neither action waits for a search.
+        *   `[X]` BT-10: both actions are registered as POST-only.
+        *   `[X]` IF-12: both new messages pass through `tr()`.
+        *   `[X]` Verify the actions through Epic 2 integration scenario 18 at the commit boundary.
+
+*   `[X]` [UI] src/webui/www/private/`setlocation.html` — post the entered location to `torrents/assignLocation` when the window is opened with `assign=true`, and to `torrents/setLocation` otherwise. T24
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the window posts to `torrents/setLocation`, which creates a missing directory and calls the location setters directly, so a torrent that matched nothing in the web interface would be placed by different rules than one placed from the desktop interface's **Choose save path** dialog.
+        *   `[X]` Functional: opened with `assign=true`, post the entered location to `torrents/assignLocation`; opened without it, post to `torrents/setLocation` exactly as the window does for **Set location...**.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/webui/www`.
+        *   `[X]` Out of scope: deciding when the window opens in its assigning mode, which is the `mocha-init.js` node.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the choice of action. Outside: what either action does.
+
+    *   `[X]` `deps`
+        *   `[X]` `torrents/assignLocation` from the `torrentscontroller` node.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The window's script reads `hashes` and `path` from `new URLSearchParams(window.location.search)` as `searchParams`, and its **Save** click handler posts `hashes` and `location` to the literal `"api/v2/torrents/setLocation"`, writes the response text into `error_div` when the response is not ok, and otherwise calls `window.parent.qBittorrent.Client.closeFrameWindow(window)`.
+
+    *   `[X]` src/webui/www/private/`setlocation.html`
+        *   `[X]` In the click handler, replace `"api/v2/torrents/setLocation"` with `((searchParams.get("assign") === "true") ? "api/v2/torrents/assignLocation" : "api/v2/torrents/setLocation")`. Nothing else changes.
+
+    *   `[X]` `directionality`
+        *   `[X]` The page consumes the WebAPI and adds no dependency beyond `torrents/assignLocation`.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-19: one unmatched torrent's location is assigned through `torrents/assignLocation`.
+        *   `[X]` **Set location...** behaves as before, posting to `torrents/setLocation`.
+        *   `[X]` BT-9: `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
+        *   `[X]` Verify the page through Epic 2 integration scenario 19 at the commit boundary.
+
+*   `[X]` [UI] src/webui/www/private/`unmatchedtorrents.html` — add the window listing torrents that matched nothing, assigning a location entered for each entry through `torrents/assignLocation`, and closing when abandoned or empty. T24
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: a web interface batch matching nothing for several torrents would otherwise open one **Set location** window per torrent, with no view of the set and no way to stop.
+        *   `[X]` Functional: list the unmatched torrents still in the session by name; for the selected entry, take a location in a field holding its save path, assign it through `torrents/assignLocation` and remove the entry; close once no entry remains.
+        *   `[X]` Functional: **Close** and Escape close the window, assigning nothing further.
+        *   `[X]` Non-functional: every string passes through `QBT_TR` with the desktop dialog's source strings where they exist, and the list, the location field and both buttons are native elements reachable by Tab.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/webui/www`, an iframe window opened by the `mocha-init.js` node.
+        *   `[X]` Out of scope: discovery, assignment and deciding which torrents are unmatched.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the list, the location field and the hand-off of an entered location. Outside: what assignment does.
+
+    *   `[X]` `deps`
+        *   `[X]` `torrents/info`, returning objects carrying `hash`, `name` and `save_path` for the torrents named by `hashes`; `torrents/assignLocation` from the `torrentscontroller` node.
+        *   `[X]` `scripts/localpreferences.js`, `scripts/color-scheme.js` and `scripts/pathAutofill.js`, loaded as `setlocation.html` loads them.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `setlocation.html` is the form model: `css/style.css`, the three scripts loaded with `defer` and `?v=${CACHEID}`, a text input with class `pathDirectory` and `autocorrect="off" autocapitalize="none"`, `window.qBittorrent.pathAutofill.attachPathAutofill()`, a `keydown` handler taking Enter and Escape, an `error_div`, the `QBT_TR(Save path is empty)QBT_TR[CONTEXT=TorrentsController]` message and `window.parent.qBittorrent.Client.closeFrameWindow(window)`. `unmatchedtorrentsdialog.ui` carries the desktop strings `Find location` and `No existing content was found for these torrents. Set a location for each, or close to leave them where they are.`, and `UnmatchedTorrentsDialog` carries `Set location...`.
+        *   `[X]` `src/webui/www/webui.qrc` lists every page under `private/` in path order.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Load: read `hashes` from the window's search parameters and fetch `api/v2/torrents/info` with `hashes` as a query parameter and `cache: "no-store"`. For each returned torrent, append to `unmatchedTorrents` an `option` whose `value` is `hash`, whose `textContent` is `name` and whose `dataset.savePath` is `save_path`. No option → close the window. Otherwise select the first option and write its `dataset.savePath` into `unmatchedLocation.value`.
+        *   `[X]` A `change` on `unmatchedTorrents` writes the selected option's `dataset.savePath` into `unmatchedLocation.value` and clears `error_div`.
+        *   `[X]` **Set location...**: no selected option → return. An empty trimmed location → write the empty-path message into `error_div` and return. Otherwise post `hashes` holding the option's `value` and `location` to `api/v2/torrents/assignLocation`. A response that is not ok → write its text into `error_div`. An ok response → remove the option, clear `error_div`, and close the window when no option remains, or else select the first option and write its save path into the field.
+        *   `[X]` **Close** and Escape close the window. Enter on a focused button activates that button; Enter elsewhere clicks **Set location...**.
+        *   `[X]` A torrent removed after the window loads is still listed; `torrents/assignLocation` skips an ID naming no torrent and answers ok, so assigning it removes the entry without effect.
+
+    *   `[X]` src/webui/www/private/`unmatchedtorrents.html`
+        *   `[X]` New file following `setlocation.html`: `<!DOCTYPE html>`, `<html lang="${LANG}" class="dark">`, the same `<head>` with `<title>QBT_TR(Find location)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]</title>`, and the script per the interaction spec inside `window.addEventListener("DOMContentLoaded", ...)` under `"use strict";`.
+        *   `[X]` Body: a `<div style="padding: 10px 10px 0px 10px;">` holding `<p id="unmatchedLabel">QBT_TR(No existing content was found for these torrents. Set a location for each, or close to leave them where they are.)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]</p>`, `<select id="unmatchedTorrents" size="6" style="width: 99%;" aria-labelledby="unmatchedLabel"></select>`, `<label for="unmatchedLocation" style="font-weight: bold;">QBT_TR(Location:)QBT_TR[CONTEXT=TransferListWidget]</label>`, `<input type="text" id="unmatchedLocation" class="pathDirectory" autocorrect="off" autocapitalize="none" style="width: 99%;">`, `<div style="float: none; width: 99%;" id="error_div">&nbsp;</div>`, and a `<div style="text-align: center; padding-top: 10px;">` holding `<input type="button" value="QBT_TR(Set location...)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="setLocationButton">` and `<input type="button" value="QBT_TR(Close)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="closeButton">`.
+
+    *   `[X]` src/webui/www/`webui.qrc`
+        *   `[X]` Add `<file>private/unmatchedtorrents.html</file>` after `<file>private/speedlimit.html</file>`.
+
+    *   `[X]` `directionality`
+        *   `[X]` The page consumes the WebAPI alone and is opened only by the `mocha-init.js` node.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-19: several unmatched torrents are listed and walked or abandoned, each entered location assigned through `torrents/assignLocation`.
+        *   `[X]` IF-12: every label passes through `QBT_TR`.
+        *   `[X]` BT-10: the page is registered in `webui.qrc`.
+        *   `[X]` Names are written through `textContent` and locations through `value`, never into markup.
+        *   `[X]` BT-9: `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
+        *   `[X]` Verify the page through Epic 2 integration scenario 19 at the commit boundary.
+
+*   `[X]` [UI] src/webui/www/private/scripts/`mocha-init.js` — add **Find location** to the web interface transfer list context menu, shown while the selection holds a torrent with metadata and `find_location_enabled` holds, polling `torrents/findLocation` until no torrent is pending and then opening `setlocation.html` in its assigning mode for one unmatched torrent or `unmatchedtorrents.html` for several. T24
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the web interface has no way to run discovery for torrents already in the session.
+        *   `[X]` Functional: a context menu action over the selection that runs `torrents/findLocation` for the selected torrents holding metadata and, once no torrent is pending, opens **Set location** in its assigning mode for one unmatched torrent, the unmatched list for several, and nothing for none.
+        *   `[X]` Functional: one poll runs per page; invoking the action while a poll is scheduled cancels that poll and merges the new selection into the operation through its own request.
+        *   `[X]` Non-functional: the action is absent while the **Find location** group is disabled, and the transfer list stays interactive while the operation runs.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/webui/www`, the transfer list and its context menu.
+        *   `[X]` Out of scope: discovery and assignment, which are the `torrentscontroller` and `sessionimpl` nodes; the windows it opens, which are the `setlocation.html` and `unmatchedtorrents.html` nodes.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the menu item, its visibility, the request and poll, and choosing which window opens. Outside: how a location is found and what assignment does.
+
+    *   `[X]` `deps`
+        *   `[X]` `torrents/findLocation` from the `torrentscontroller` node; `find_location_enabled` from `app/preferences`, read through `window.qBittorrent.Cache.preferences.get()`.
+        *   `[X]` `images/edit-find.svg`, already in `webui.qrc`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `index.html` lists `torrentsTableMenu` items as `<li>` elements whose anchors name an action by `href`; **Set location...** is the `<li class="separator">` holding `#setLocation`. `views/transferlist.html` binds each action name to a function in the object it passes to `TorrentsTableContextMenu`, with `setLocation: (element, ref) => { setLocationFN(); }`.
+        *   `[X]` `TorrentsTableContextMenu::updateMenuItems()` in `scripts/contextmenu.js` walks the selected rows' `full_data`, declaring its flags before the walk and ending the flag declarations with `let all_are_auto_tmm = true;`, then shows and hides items through `showItem()` and `hideItem()` and calls `this.setItemChecked("autoTorrentManagement", all_are_auto_tmm);`. Each row's `full_data` carries `has_metadata` and `save_path`.
+        *   `[X]` `mocha-init.js` declares each action as `let setLocationFN = () => {};` near the top and assigns it later; `setLocationFN` opens `setlocation.html` in a `MochaUI.Window` with id `setLocationPage`, passing `hashes` and the first row's `save_path`. `addtorrent.js` polls `torrents/fetchMetadata` on a one-second delay while the answer is HTTP 202.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `openSetLocationWindow(hashes, assign)`, a `const` arrow function defined immediately before the `setLocationFN` assignment, holds the current body of `setLocationFN` after its empty-selection test, with `hashes` as a parameter and, when `assign` is true, `assign: "true"` added to the window's search parameters. `setLocationFN` keeps its empty-selection test and then calls `openSetLocationWindow(hashes, false)`.
+        *   `[X]` `findLocationFN`: take the selected row IDs whose row `full_data.has_metadata` is true; none → return. Clear the scheduled poll, then post `hashes` joined by `|` to `api/v2/torrents/findLocation` and pass the response to `handleFindLocationResponse`.
+        *   `[X]` `scheduleFindLocationPoll()` stores the timer of a post, one second later, to `api/v2/torrents/findLocation` without `hashes`, whose response is passed to `handleFindLocationResponse` and whose failure to complete calls `scheduleFindLocationPoll()` again; the request `findLocationFN` posts is handled the same way. `handleFindLocationResponse(response)`: not ok → `alert()` the response text, ending the poll. HTTP 202 → `scheduleFindLocationPoll()`. HTTP 200 → read `unmatched` from the JSON; one ID → `openSetLocationWindow([id], true)`; more than one → open `unmatchedtorrents.html` with `v` set to `${CACHEID}` and `hashes` joined by `|` in a `MochaUI.Window` with id `unmatchedTorrentsPage`, icon `images/qbittorrent-tray.svg`, title `QBT_TR(Find location)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]`, `loadMethod: "iframe"`, `scrollbars: false`, `resizable: true`, `maximizable: false`, both paddings 0, width `window.qBittorrent.Dialog.limitWidthToViewport(480)` and height 320; none → nothing.
+        *   `[X]` `updateMenuItems()`: after `let all_are_auto_tmm = true;`, declare `let there_are_metadata = false;`; in the walk, set it true for a row whose `data["has_metadata"]` is true; after `this.setItemChecked("autoTorrentManagement", all_are_auto_tmm);`, show `findLocation` when `there_are_metadata` and `window.qBittorrent.Cache.preferences.get().find_location_enabled` both hold, and hide it otherwise.
+
+    *   `[X]` src/webui/www/private/`index.html`
+        *   `[X]` After the `<li class="separator">` holding `#setLocation`, add a `<li>` holding `<a href="#findLocation"><img src="images/edit-find.svg" alt="QBT_TR(Find location)QBT_TR[CONTEXT=TransferListWidget]"> QBT_TR(Find location)QBT_TR[CONTEXT=TransferListWidget]</a>`, indented as the neighbouring items.
+
+    *   `[X]` src/webui/www/private/views/`transferlist.html`
+        *   `[X]` After the `setLocation` binding and its blank line, add `findLocation: (element, ref) => { findLocationFN(); },` in the multi-line form of `setLocation`, followed by a blank line.
+
+    *   `[X]` src/webui/www/private/scripts/`contextmenu.js`
+        *   `[X]` Add the flag, its test and the visibility statement per the interaction spec.
+
+    *   `[X]` src/webui/www/private/scripts/`mocha-init.js`
+        *   `[X]` After `let setLocationFN = () => {};`, add `let findLocationFN = () => {};`.
+        *   `[X]` Define `openSetLocationWindow` before the `setLocationFN` assignment and reduce `setLocationFN` to it; assign `findLocationFN`, with `handleFindLocationResponse` and its timer defined before it, after the `setLocationFN` assignment, per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` The web interface consumes the WebAPI and `app/preferences` alone, and depends beside itself on `setlocation.html` and `unmatchedtorrents.html`.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-19: **Find location** sits directly after **Set location...**, shown while the selection holds a torrent with metadata and `find_location_enabled` holds, opening the assigning **Set location** window for one miss and the unmatched list for several.
+        *   `[X]` IF-12: the menu label and window title pass through `QBT_TR`.
+        *   `[X]` ST-2: the action is absent while `find_location_enabled` is false.
+        *   `[X]` BT-9: `npm run lint` passes, and `npm run format` in `src/webui/www` leaves every edited file unchanged.
+        *   `[X]` Verify the action through Epic 2 integration scenario 19 at the commit boundary.
+
+*   `[X]` [DOCS] `WebAPI_Changelog` — record `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` on `app/preferences` and `app/setPreferences`, and the `torrents/findLocation` and `torrents/assignLocation` endpoints, under the version heading at the top of the file. T15, T23
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: WebAPI clients learn of new preference keys and endpoints from this file, and four keys join both preference endpoints while two endpoints join the torrent actions.
+        *   `[X]` Functional: add one entry under the version heading at the top of the file when the branch is rebased, linking this submission's pull request, naming all four keys on both preference endpoints and adding both torrent endpoints. Leave `API_VERSION` and the version headings unchanged.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The entry added by the first epic's `WebAPI_Changelog` node is the wording model. Entries under a heading run newest first.
+        *   `[X]` The entries adding `torrents/fetchMetadata` and `torrents/setComment` are the wording model for an added endpoint, in the form ``Add `torrents/<action>` endpoint with ... for ...``.
+
+    *   `[X]` `WebAPI_Changelog.md`
+        *   `[X]` Under the heading at the top of the file, before its first entry, insert the entry below, separated from its neighbours as the existing entries are.
+        *   `[X]` The entry is a top-level bullet linking the pull request, `* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)`, where `<number>` is the number GitHub assigns when this submission's pull request is opened.
+        *   `[X]` Under it, the indented bullet ``* `app/preferences` endpoint includes `find_location_on_start_enabled` (bool), `find_location_recheck_enabled` (bool), `find_location_seed_enabled` (bool) and `find_location_leech_enabled` (bool) options``.
+        *   `[X]` Under it, the indented bullet ``* `app/setPreferences` endpoint allows to set `find_location_on_start_enabled` (bool), `find_location_recheck_enabled` (bool), `find_location_seed_enabled` (bool) and `find_location_leech_enabled` (bool) options``.
+        *   `[X]` Under it, the indented bullet ``* Add `torrents/findLocation` endpoint with optional parameter `hashes` for finding the existing content of torrents and assigning each location found, answering HTTP 202 with `pending`, `matched` and `unmatched` while any torrent is pending and HTTP 200 once none is``.
+        *   `[X]` Under it, the indented bullet ``* Add `torrents/assignLocation` endpoint with parameters `hashes` and `location` for assigning an existing directory as the location of torrents``.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the keys and actions it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
+        *   `[X]` The file passes the `rumdl` pre-commit hook.
 
 *   `[ ]` **Commit** `Find location before starting existing torrents`
-    *   `[ ]` Structural: `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, the eight Epic 2 setting accessors and `torrentLocationFound`; `TorrentImpl::stop(bool)` plus the single `interceptFindLocationStart()` call; `SessionImpl::searchExistingContent()`, the five named transaction helpers and `m_locationAssignments`; `UnmatchedTorrentsDialog`; `m_findLocationOperation` and the transfer-list action; four new checkboxes in each preferences interface.
-    *   `[ ]` Behavioural: the manual action retains its exact discovery, assignment and fallback flow; additionally, an eligible explicit Start is held, searched, assigned when needed, rechecked after the actual location settles, and released in its saved normal or forced mode only after a successful match check, while a successful miss releases the unchanged Start workflow immediately.
-    *   `[ ]` Contract: `findExistingContent()` keeps its signature and add-time behavior; public `Torrent::start()` and `Torrent::stop()` signatures, `forceRecheck()`, the location setters and the storage move queue are unchanged; when either Start gate is disabled or the torrent is ineligible, the original Start body runs unchanged; `app/preferences` and `app/setPreferences` gain four keys, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged.
-    *   `[ ]` **Integration scenario 1 — assignment movement and overlap:** assign one torrent already at the chosen location and one requiring a storage move; confirm each recheck begins only after it reports the chosen location. While another feature assignment is waiting for movement, use the existing **Set location...** action to choose a different destination; confirm the existing move queue reaches that destination and the feature clears its assignment state without issuing a recheck or start for the superseded target.
-    *   `[ ]` **Integration scenario 2 — movement failure:** make an assignment move fail; confirm the existing warning is logged, the torrent remains stopped at its prior location, and no feature recheck or start follows.
-    *   `[ ]` **Integration scenario 3 — check and start decisions:** with a complete torrent and an incomplete torrent, verify **Recheck automatically** off, then on; with it on, verify the complete torrent under each **Seed automatically** value and the incomplete torrent under each **Leech automatically** value. While an assignment waits for movement, complete a separately initiated check for that torrent and confirm it causes no feature start decision. Run a batch larger than both configured checking and active-torrent limits and confirm both limits hold.
-    *   `[ ]` **Integration scenario 4 — operation coalescing:** while a mixed batch remains pending, invoke **Find location** over a selection containing one pending ID, one ID already matched in that operation and one new ID; confirm the first two are not searched or assigned again, the new ID joins the operation, and each match is assigned as its result arrives.
-    *   `[ ]` **Integration scenario 5 — unmatched handling:** verify that one valid miss opens **Choose save path**, several valid misses open `UnmatchedTorrentsDialog`, zero valid misses open nothing, **Close** and Escape assign no remaining entry, and removing torrents before and after the dialog opens leaves no empty dialog.
-    *   `[ ]` **Integration scenario 6 — settings surfaces:** verify `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` are always returned by `app/preferences`; each present key independently changes only its session setting through `app/setPreferences`; each absent key leaves its setting unchanged; desktop and WebUI controls reflect all four values; disabling the group preserves every child value; and disabling recheck preserves the seed and leech values.
-    *   `[ ]` **Integration scenario 7 — own paths:** run **Find location** for a torrent whose content is at its own save path and for one whose content is at its own download path; confirm each is reported as matched, no assignment, recheck or start follows, and neither opens a dialog.
-    *   `[ ]` **Integration scenario 8 — existing location semantics:** assign an automatic-mode torrent and confirm it switches to manual mode as **Set location...** does; assign an incomplete torrent with a download path and confirm its save path is recorded, its storage stays in the download path, and no feature recheck or start follows; assign a torrent while it is being checked and confirm the feature's recheck follows its move.
-    *   `[ ]` **Integration scenario 9 — disabled and ineligible Start fall-through (TX-1):** capture the state and native behavior of a stopped manual torrent started normally and forcibly with the feature absent. Repeat with the master gate off, with OnStart off, with automatic torrent management enabled, and while the torrent is checking. In every case confirm no `m_locationAssignments` entry or Find Location terminal log is produced and the same stopped-state, mode and resume behavior occurs as in the baseline.
-    *   `[ ]` **Integration scenario 10 — Start match ordering and data safety (TX-2, TX-3, TX-5):** for complete and partial stopped manual torrents whose configured save and download paths contain none of their files, place content at another watched-folder save path. Record target-directory creation time, file size and modification time and monitor payload peer traffic. Invoke normal Start and forced Start separately. Confirm no configured-destination payload file is created, allocated, truncated or written and no content block is requested before search completion, actual-location settlement and successful check; confirm the found location becomes `actualStorageLocation()`, checking makes progress there, and release uses the originally requested mode.
-    *   `[ ]` **Integration scenario 11 — own-path matches (TX-3):** test content at the current active download path, at the save path with no separate download path, and at the save path while a separate download directory containing none of the torrent's files is configured. Confirm each path is searched once, no external assignment occurs, the last case clears the separate download path through the specified existing setter sequence so the save path becomes actual, every case completes the mandatory feature recheck even with **Recheck automatically** off, and Start is released only from `torrentFinishedChecking`.
-    *   `[ ]` **Integration scenario 12 — successful miss (TX-4):** with all candidate paths containing no torrent file, start normally and forcibly. Confirm search completes and logs a miss, no location setter or recheck is called, exactly one terminal `continued after no match` log is written, and the original Start behavior creates/downloads at the configured destination in the requested mode.
-    *   `[ ]` **Integration scenario 13 — coalescing and saved intent (TX-6):** hold one torrent separately in `WaitingForMetadata`, `Searching`, `WaitingForMove` and `WaitingForCheck`; issue at least two additional Start requests, ending with the opposite mode. Confirm the map retains one entry and one token, search/assignment/recheck each occur at most once, and the terminal Start uses only the last explicit mode.
-    *   `[ ]` **Integration scenario 14 — metadata-only acquisition (TX-2, TX-3):** start a stopped manual magnet without metadata. Confirm the metadata-only pass invokes the existing Start body once with `StopCondition::MetadataReceived`, payload files and content requests remain absent, a libtorrent-2 hybrid ID change re-keys the one map entry, `handleTorrentMetadataReceived()` starts one search after file names are ready, and match and miss then follow scenarios 10 and 12 without a second transaction.
-    *   `[ ]` **Integration scenario 15 — cancellation and late callbacks (TX-7):** cancel once with public Stop in each of `WaitingForMetadata`, `Searching`, `WaitingForMove` and `WaitingForCheck`; remove another torrent in each phase; and begin session shutdown with searches outstanding. Confirm state is erased, Stop works even while the torrent already reports Stopped, Stop, removal and shutdown each emit one cancellation log per pending Start, and delayed search, movement and check callbacks perform no assignment, recheck or Start. Also confirm `TorrentImpl::handleTorrentChecked()` uses `stop(false)` and therefore does not cancel a successful feature check before the session callback releases it.
-    *   `[ ]` **Integration scenario 16 — failure cleanup and force-recheck boundary (TX-8):** independently provoke asynchronous search failure, an assignment that cannot make the selected path actual, storage-move failure, metadata resume-data failure and file I/O error during the feature check. Confirm each pending Start is erased before ordinary Stop, produces one `failed` log naming the exact phase and reason, never produces a continuation log, leaves no live `FilesChecked` stop condition, and can be retried by explicit Start without restarting qBittorrent. Then provoke the known force-recheck bug outside Find Location and confirm its existing behavior is unchanged.
-    *   `[ ]` **Integration scenario 17 — responsiveness and isolation:** run a search over slow or unavailable volumes while repeatedly opening menus and issuing Stop; confirm the GUI thread never blocks. While feature transactions are active, complete unrelated storage moves, checks and file-error alerts for torrents absent from `m_locationAssignments`; confirm those torrents retain their baseline behavior and produce no Find Location terminal log.
-    *   `[ ]` The body carries `Closes #8261.` Commit after all seventeen integration scenarios pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
+    *   `[ ]` Structural: `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, the eight Epic 2 setting accessors and `torrentLocationFound`; `TorrentImpl::stop(bool)` plus the single `interceptFindLocationStart()` call; `SessionImpl::searchExistingContent()`, the five named transaction helpers and `m_locationAssignments`; `UnmatchedTorrentsDialog`; `m_findLocationOperation` and the transfer-list action; `TorrentsController::findLocationAction()`, `TorrentsController::assignLocationAction()` and the controller's `m_findLocationOperation`; the web interface **Find location** action, `unmatchedtorrents.html` and the assigning mode of `setlocation.html`; four new checkboxes in each preferences interface.
+    *   `[ ]` Behavioural: the manual action retains its exact discovery, assignment and fallback flow, and the web interface and the WebAPI run the same discovery, assignment and fallback for a web session's operation, answering HTTP 202 until no torrent is pending; additionally, an eligible explicit Start is held, searched, assigned when needed, rechecked after the actual location settles, and released in its saved normal or forced mode only after a successful match check, while a successful miss releases the unchanged Start workflow immediately.
+    *   `[ ]` Contract: `findExistingContent()` keeps its signature and add-time behavior; public `Torrent::start()` and `Torrent::stop()` signatures, `forceRecheck()`, the location setters and the storage move queue are unchanged; when either Start gate is disabled or the torrent is ineligible, the original Start body runs unchanged; `app/preferences` and `app/setPreferences` gain four keys, and `torrents/findLocation` and `torrents/assignLocation` are added, all recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged; `torrents/setLocation` and **Set location...** in the web interface are unchanged.
+    *   `[X]` **Integration scenario 1 — assignment movement and overlap:** assign one torrent already at the chosen location and one requiring a storage move; confirm each recheck begins only after it reports the chosen location. While another feature assignment is waiting for movement, use the existing **Set location...** action to choose a different destination; confirm the existing move queue reaches that destination and the feature clears its assignment state without issuing a recheck or start for the superseded target.
+    *   `[X]` **Integration scenario 2 — movement failure:** make an assignment move fail; confirm the existing warning is logged, the torrent remains stopped at its prior location, and no feature recheck or start follows.
+    *   `[X]` **Integration scenario 3 — check and start decisions:** with a complete torrent and an incomplete torrent, verify **Recheck automatically** off, then on; with it on, verify the complete torrent under each **Seed automatically** value and the incomplete torrent under each **Leech automatically** value. While an assignment waits for movement, complete a separately initiated check for that torrent and confirm it causes no feature start decision. Run a batch larger than both configured checking and active-torrent limits and confirm both limits hold.
+    *   `[X]` **Integration scenario 4 — operation coalescing:** while a mixed batch remains pending, invoke **Find location** over a selection containing one pending ID, one ID already matched in that operation and one new ID; confirm the first two are not searched or assigned again, the new ID joins the operation, and each match is assigned as its result arrives.
+    *   `[X]` **Integration scenario 5 — unmatched handling:** verify that one valid miss opens **Choose save path**, several valid misses open `UnmatchedTorrentsDialog`, zero valid misses open nothing, **Close** and Escape assign no remaining entry, and removing torrents before and after the dialog opens leaves no empty dialog.
+    *   `[X]` **Integration scenario 6 — settings surfaces:** verify `find_location_on_start_enabled`, `find_location_recheck_enabled`, `find_location_seed_enabled` and `find_location_leech_enabled` are always returned by `app/preferences`; each present key independently changes only its session setting through `app/setPreferences`; each absent key leaves its setting unchanged; desktop and WebUI controls reflect all four values; disabling the group preserves every child value; and disabling recheck preserves the seed and leech values.
+    *   `[X]` **Integration scenario 7 — own paths:** run **Find location** for a torrent whose content is at its own save path and for one whose content is at its own download path; confirm each is reported as matched, no assignment, recheck or start follows, and neither opens a dialog.
+    *   `[X]` **Integration scenario 8 — existing location semantics:** assign an automatic-mode torrent and confirm it switches to manual mode as **Set location...** does; assign an incomplete torrent with a download path and confirm its save path is recorded, its storage stays in the download path, and no feature recheck or start follows; assign a torrent while it is being checked and confirm the feature's recheck follows its move.
+    *   `[X]` **Integration scenario 9 — disabled and ineligible Start fall-through (TX-1):** capture the state and native behavior of a stopped manual torrent started normally and forcibly with the feature absent. Repeat with the master gate off, with OnStart off, with automatic torrent management enabled, and while the torrent is checking. In every case confirm no `m_locationAssignments` entry or Find Location terminal log is produced and the same stopped-state, mode and resume behavior occurs as in the baseline.
+    *   `[X]` **Integration scenario 10 — Start match ordering and data safety (TX-2, TX-3, TX-5):** for complete and partial stopped manual torrents whose configured save and download paths contain none of their files, place content at another watched-folder save path. Record target-directory creation time, file size and modification time and monitor payload peer traffic. Invoke normal Start and forced Start separately. Confirm no configured-destination payload file is created, allocated, truncated or written and no content block is requested before search completion, actual-location settlement and successful check; confirm the found location becomes `actualStorageLocation()`, checking makes progress there, and release uses the originally requested mode.
+    *   `[X]` **Integration scenario 11 — own-path matches (TX-3):** test content at the current active download path, at the save path with no separate download path, and at the save path while a separate download directory containing none of the torrent's files is configured. Confirm each path is searched once, no external assignment occurs, the last case clears the separate download path through the specified existing setter sequence so the save path becomes actual, every case completes the mandatory feature recheck even with **Recheck automatically** off, and Start is released only from `torrentFinishedChecking`.
+    *   `[X]` **Integration scenario 12 — successful miss (TX-4):** with all candidate paths containing no torrent file, start normally and forcibly. Confirm search completes and logs a miss, no location setter or recheck is called, exactly one terminal `continued after no match` log is written, and the original Start behavior creates/downloads at the configured destination in the requested mode.
+    *   `[X]` **Integration scenario 13 — coalescing and saved intent (TX-6):** hold one torrent separately in `WaitingForMetadata`, `Searching`, `WaitingForMove` and `WaitingForCheck`; issue at least two additional Start requests, ending with the opposite mode. Confirm the map retains one entry and one token, search/assignment/recheck each occur at most once, and the terminal Start uses only the last explicit mode.
+    *   `[X]` **Integration scenario 14 — metadata-only acquisition (TX-2, TX-3):** start a stopped manual magnet without metadata. Confirm the metadata-only pass invokes the existing Start body once with `StopCondition::MetadataReceived`, payload files and content requests remain absent, a libtorrent-2 hybrid ID change re-keys the one map entry, `handleTorrentMetadataReceived()` starts one search after file names are ready, and match and miss then follow scenarios 10 and 12 without a second transaction.
+    *   `[X]` **Integration scenario 15 — cancellation and late callbacks (TX-7):** cancel once with public Stop in each of `WaitingForMetadata`, `Searching`, `WaitingForMove` and `WaitingForCheck`; remove another torrent in each phase; and begin session shutdown with searches outstanding. Confirm state is erased, Stop works even while the torrent already reports Stopped, Stop, removal and shutdown each emit one cancellation log per pending Start, and delayed search, movement and check callbacks perform no assignment, recheck or Start. Also confirm `TorrentImpl::handleTorrentChecked()` uses `stop(false)` and therefore does not cancel a successful feature check before the session callback releases it.
+    *   `[X]` **Integration scenario 16 — failure cleanup and force-recheck boundary (TX-8):** independently provoke asynchronous search failure, an assignment that cannot make the selected path actual, storage-move failure, metadata resume-data failure and file I/O error during the feature check. Confirm each pending Start is erased before ordinary Stop, produces one `failed` log naming the exact phase and reason, never produces a continuation log, leaves no live `FilesChecked` stop condition, and can be retried by explicit Start without restarting qBittorrent. Then provoke the known force-recheck bug outside Find Location and confirm its existing behavior is unchanged.
+    *   `[X]` **Integration scenario 17 — responsiveness and isolation:** run a search over slow or unavailable volumes while repeatedly opening menus and issuing Stop; confirm the GUI thread never blocks. While feature transactions are active, complete unrelated storage moves, checks and file-error alerts for torrents absent from `m_locationAssignments`; confirm those torrents retain their baseline behavior and produce no Find Location terminal log.
+    *   `[ ]` **Integration scenario 18 — WebAPI actions:** with **Find location** enabled, post `torrents/findLocation` naming a mixed set of torrents: two whose content sits under a watched folder save path, one without content anywhere, one without metadata and one unknown ID. Confirm the answer is HTTP 202 listing the three torrents with metadata as pending and omitting the others, and that each match is assigned as its result arrives, before polling, following **Recheck automatically**, **Seed automatically** and **Leech automatically**. While one remains pending, post again naming a pending torrent, a matched torrent and a new torrent; confirm only the new torrent is searched. Poll without `hashes` until HTTP 200, and confirm `matched` carries each assigned torrent with its location in the form `save_path` uses and `unmatched` carries the miss. Poll again and confirm HTTP 200 with empty lists and no search. Remove an unmatched torrent before the final answer and confirm it is omitted. Run the desktop **Find location** on a torrent while a web session operation searches it, and confirm it receives one assignment. Post `torrents/assignLocation` with an empty location, a missing directory and an existing directory; confirm HTTP 400, HTTP 409 with no directory created, and an assignment following the same rules as a found location. Disable the group and confirm `torrents/findLocation` answers HTTP 409 and searches nothing. Confirm both actions refuse GET.
+    *   `[ ]` **Integration scenario 19 — web interface action and list:** confirm **Find location** follows **Set location...** in the web interface transfer list context menu over a selection holding a torrent with metadata, and is absent for a selection of torrents without metadata and while the group is disabled, including after the group is disabled from the web interface preferences page. Run it over one torrent matching nothing and confirm the **Set location** window opens with its save path, that saving an existing directory assigns it through `torrents/assignLocation`, and that saving a missing one shows the error and creates nothing. Run it over several torrents matching nothing and confirm `unmatchedtorrents.html` lists them by name, assigns an entered location to the selected entry and removes it, closes when the last entry is assigned, and assigns nothing further after **Close** or Escape. Remove a listed torrent before opening the list and confirm it is not listed. Invoke **Find location** again while a first invocation is polling and confirm one set of windows opens for the combined operation. Disable the group from another client while an invocation is polling and confirm the web interface reports the refusal; interrupt the connection during a poll and confirm polling resumes and the windows open once it completes. Operate the list by keyboard alone, and confirm Enter on **Close** closes the window without assigning. Confirm **Set location...** still moves a torrent to a directory it creates, as before.
+    *   `[ ]` The body carries `Closes #8261.` Commit after all nineteen integration scenarios pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
 
 ## Epic 3 — discovery roots
 
@@ -983,24 +1183,25 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[ ]` ST-7: `Application` owns the singleton's lifetime.
         *   `[ ]` `DiscoveryRoots::instance()` is non-null throughout the session's lifetime, verified by the dependency map's manual case for step 22.
 
-*   `[ ]` [BE] src/base/bittorrent/`filesearcher` — add `SubdirectoryMap` and `enumerateSubdirectories()`, listing a root's immediate subdirectories into a map keyed by case-folded name, and give `candidateRoots()` a trailing list of optional maps, so a search root with a map contributes its name form by lookup. T17, T18
+*   `[ ]` [BE] src/base/bittorrent/`filesearcher` — add `SubdirectoryMap` and `enumerateSubdirectories()`, walking every directory beneath a root into a map from case-folded name to every directory bearing it, and give `candidateRoots()` a trailing list of optional maps, so a search root with a map contributes, for each directory named for the torrent or its `.torrent` file at any depth, that directory's parent then the directory. T17, T18
 
     *   `[ ]` `objective`
-        *   `[ ]` Problem: a library root holding one directory per torrent would need a probe of every subdirectory for every torrent to be searched through, and the name form reaches only a directory named exactly as the torrent.
-        *   `[ ]` Functional: list a root's immediate subdirectories once into a map from subdirectory name to path, folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`.
-        *   `[ ]` Functional: a search root supplied with a map contributes the root form, the directory the map holds for the torrent's name in the name form's place, and the source form; a search root supplied without one contributes the three forms it does now.
-        *   `[ ]` Non-functional: a root that cannot be listed yields an empty map and fails nothing; calls supplying no maps behave as they do now.
+        *   `[ ]` Problem: the root form, name form and source form reach only content folders directly beneath a search root or one folder below it. On a volume structured as `volume/someDeterminant/someOtherDeterminant/contentFolder/content`, every probe stops at `volume/someDeterminant`, and searching such a tree by probing would need a probe of every directory for every torrent.
+        *   `[ ]` Functional: walk every directory beneath a root once, at any depth, into a map from subdirectory name to every directory bearing that name, ordered by `Path::data()`, folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`. Hidden directories, symbolic links and junctions are neither listed nor entered.
+        *   `[ ]` Functional: a search root supplied with a map contributes the root form; then, for each directory the map holds under the torrent's name and then under the source name, the directory's parent followed by the directory. The parent is where a torrent whose declared paths begin with its own folder is found, and the directory is where a single-file torrent or content nested in a folder of the torrent's name is found. A search root supplied without a map contributes the three forms it does now.
+        *   `[ ]` Non-functional: a root that cannot be listed yields an empty map and fails nothing, and a directory beneath it that cannot be listed contributes nothing beneath it while its siblings are walked; calls supplying no maps behave as they do now.
 
     *   `[ ]` `role`
         *   `[ ]` Domain logic in `src/base/bittorrent`, run on the session I/O thread.
         *   `[ ]` Out of scope: deciding which roots are enumerated, and holding or discarding a map, which the `sessionimpl` node does.
 
     *   `[ ]` `module`
-        *   `[ ]` Inside: listing a directory's subdirectories, folding names, and serving the name form from a map. Outside: where roots and maps come from.
+        *   `[ ]` Inside: walking a directory tree, folding names, and serving parent and directory candidates from a map. Outside: where roots and maps come from.
 
     *   `[ ]` `deps`
-        *   `[ ]` `<QDir>` and `<QDirIterator>` — `QDirIterator` over `QDir::Dirs | QDir::NoDotAndDotDot`, as `TorrentFilesWatcher::Worker::processFolder()` lists a recursive folder's subdirectories.
-        *   `[ ]` `base/path.h` — `Path::filename()` and `Path::CASE_SENSITIVITY`.
+        *   `[ ]` `<QDir>`, `<QDirIterator>` and `<QFileInfo>` — a non-recursive `QDirIterator` per directory over `QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks`, `QDirIterator::nextFileInfo()` and `QFileInfo::isJunction()`, available from the Qt 6.6 minimum the build requires. `TorrentFilesWatcher::Worker::processFolder()` recurses into every subdirectory of a recursive watched folder, and this walk reaches the same depth.
+        *   `[ ]` `<algorithm>` — `std::ranges::sort`, ordering each map value by `Path::data()`.
+        *   `[ ]` `base/path.h` — `Path::filename()`, `Path::parentPath()` and `Path::CASE_SENSITIVITY`.
         *   `[ ]` `<QHash>` and `<optional>` — the map and its per-root presence.
 
     *   `[ ]` `context_slice`
@@ -1008,56 +1209,68 @@ Each node addresses one source file and the support that file requires. Ticket i
 
     *   `[ ]` src/base/bittorrent/`filesearcher.h`
         *   `[ ]` Add `#include <optional>` to a standard library group ahead of the Qt group, and `#include <QHash>` to the Qt group before `#include <QObject>`.
-        *   `[ ]` Before `struct FileSearchResult`, add `using SubdirectoryMap = QHash<QString, Path>;`.
+        *   `[ ]` Before `struct FileSearchResult`, add `using SubdirectoryMap = QHash<QString, PathList>;`.
         *   `[ ]` The `candidateRoots()` declaration gains the trailing parameter `const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {}`.
         *   `[ ]` After it, declare `SubdirectoryMap enumerateSubdirectories(const Path &root);`.
 
     *   `[ ]` `interaction.spec`
         *   `[ ]` `foldedName(name)`, new in the anonymous namespace: `name.toCaseFolded()` where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and `name` otherwise.
-        *   `[ ]` `enumerateSubdirectories(root)`: `root` empty → an empty map, since `QDirIterator` over an empty path lists the working directory. Otherwise `QDirIterator iter {root.data(), (QDir::Dirs | QDir::NoDotAndDotDot)}`, and for each `const Path subdirectory {iter.next()}` the map gains `foldedName(subdirectory.filename())` → `subdirectory`. A root that does not exist or cannot be read yields no entry.
+        *   `[ ]` `enumerateSubdirectories(root)`: `root` empty → an empty map, since `QDirIterator` over an empty path lists the working directory. Otherwise a breadth-first walk over `PathList pending {root}`, indexed by `for (qsizetype i = 0; i < pending.size(); ++i)` with `const Path directory = pending.at(i);` copied before any append. Each `directory` is listed by `QDirIterator iter {directory.data(), (QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks)}`, without `QDirIterator::Subdirectories`. For each `const QFileInfo info = iter.nextFileInfo();`, an entry for which `info.isJunction()` holds is skipped; otherwise `const Path subdirectory {info.filePath()}` is appended to `map[foldedName(subdirectory.filename())]` and to `pending`. After the walk, each value of the map is sorted with `std::ranges::sort(paths, {}, &Path::data)`.
+        *   `[ ]` The filter omits `QDir::Hidden` and carries `QDir::NoSymLinks`, and the junction test runs on the same entry, so a hidden directory, a symbolic link and a junction are neither listed nor appended to `pending`, and the walk never enters them. The walk is explicit so that these tests govern descent as well as listing. A root or a directory beneath it that does not exist or cannot be read lists no entry, and the walk continues with the rest of `pending`. The root itself is never an entry.
         *   `[ ]` `candidateRoots()`: the search root at index `i` of `searchRoots` takes `subdirectoryMaps.value(i)`; empty-entry substitution of `defaultSavePath` is unchanged. Without a map it contributes the root form, name form and source form as before.
-        *   `[ ]` With a map it contributes the root form; then `map->value(foldedName(torrentName))`, where non-empty, in the name form's position; then the source form as before. Each candidate passes the same deduplication as every other.
+        *   `[ ]` With a map it contributes the root form; then, when `hasName`, for each `hit` of `map->value(foldedName(nameForm.data()))` in order, `hit.parentPath()` then `hit`; then, when `hasSource`, for each `hit` of `map->value(foldedName(sourceStem.data()))` in order, `hit.parentPath()` then `hit`. It contributes neither `effectiveRoot / nameForm` nor `effectiveRoot / sourceStem`. Each candidate passes `tryAppend`, the same exclusion and deduplication as every other, so a hit directly beneath the root collapses its parent into the root form and a parent shared by several hits is contributed once, at its first position.
 
     *   `[ ]` test/testdata/`filesearcher`
         *   `[ ]` test/testdata/filesearcher/library/Album One/`alpha.txt` — the single line `fixture` followed by a line feed.
         *   `[ ]` test/testdata/filesearcher/library/Album One/Disc 1/`alpha.txt` — the single line `fixture` followed by a line feed.
         *   `[ ]` test/testdata/filesearcher/library/album two/`alpha.txt` — the single line `fixture` followed by a line feed.
         *   `[ ]` test/testdata/filesearcher/library/`loose.txt` — the single line `fixture` followed by a line feed.
+        *   `[ ]` test/testdata/filesearcher/library/Genre/Artist/Album Three/`alpha.txt` — the single line `fixture` followed by a line feed.
+        *   `[ ]` test/testdata/filesearcher/library/Genre/Other/Disc 1/`alpha.txt` — the single line `fixture` followed by a line feed.
 
     *   `[ ]` test/`testbittorrentcandidateroots.cpp`
-        *   `[ ]` Add `#include <optional>`. Slots below pass search roots `/library` with the map list stated, over the file's default inputs unless stated otherwise.
-        *   `[ ]` `testEnumeratedRootServesNameFormByLookup` — torrent name `album`, maps holding `{album → /library/album}` → `/library`, `/library/album`, `/library/Album Rip`.
-        *   `[ ]` `testEnumeratedNameFormUsesMappedPath` — torrent name `album`, maps holding `{album → /library/Album (2001)}` → `/library`, `/library/Album (2001)`, `/library/Album Rip`.
-        *   `[ ]` `testEnumeratedRootOmitsNameFormOnMiss` — maps holding one empty map → `/library`, `/library/Album Rip`.
-        *   `[ ]` `testRootsBeyondMapsAreProbed` — search roots `/library`, `/watch`, maps holding one empty map → `/library`, `/library/Album Rip`, `/watch`, `/watch/Album`, `/watch/Album Rip`.
+        *   `[ ]` Add `#include <optional>`. Slots below pass search roots `/library` with the map list stated, over the file's default inputs unless stated otherwise. Map keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, written below as the unfolded name.
+        *   `[ ]` `testDeepHitContributesParentThenDirectory` — maps holding `{Album → [/library/a/b/Album]}` → `/library`, `/library/a/b`, `/library/a/b/Album`.
+        *   `[ ]` `testShallowHitParentCollapsesIntoRootForm` — maps holding `{Album → [/library/Album]}` → `/library`, `/library/Album`.
+        *   `[ ]` `testEveryHitOfRepeatedNameContributes` — maps holding `{Album → [/library/a/Album, /library/b/Album]}` → `/library`, `/library/a`, `/library/a/Album`, `/library/b`, `/library/b/Album`.
+        *   `[ ]` `testSourceHitsFollowNameHits` — maps holding `{Album → [/library/p/Album], Album Rip → [/library/q/Album Rip]}` → `/library`, `/library/p`, `/library/p/Album`, `/library/q`, `/library/q/Album Rip`.
+        *   `[ ]` `testSharedParentContributesOnce` — maps holding `{Album → [/library/x/Album], Album Rip → [/library/x/Album Rip]}` → `/library`, `/library/x`, `/library/x/Album`, `/library/x/Album Rip`.
+        *   `[ ]` `testHitParentEqualToOwnPathIsExcluded` — save `/library/p`, maps holding `{Album → [/library/p/Album]}` → `/library`, `/library/p/Album`.
+        *   `[ ]` `testUncontainedNameIsNotLookedUp` — torrent name `..`, source file name empty, maps holding `{.. → [/elsewhere/inner]}` → `/library`.
+        *   `[ ]` `testEnumeratedRootContributesRootFormOnMiss` — maps holding one empty map → `/library`.
+        *   `[ ]` `testRootsBeyondMapsAreProbed` — search roots `/library`, `/watch`, maps holding one empty map → `/library`, `/watch`, `/watch/Album`, `/watch/Album Rip`.
         *   `[ ]` `testNulloptMapIsProbed` — maps holding `std::nullopt` → `/library`, `/library/Album`, `/library/Album Rip`.
-        *   `[ ]` `testLookupFoldsCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — torrent name `ALBUM`, maps holding `{album → C:/library/Album}`, search roots `C:/library` → the result holds `C:/library/Album` directly after `C:/library`.
+        *   `[ ]` `testLookupFoldsCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — torrent name `ALBUM`, maps holding `{album → [C:/library/x/Album]}`, search roots `C:/library` → `C:/library`, `C:/library/x`, `C:/library/x/Album`.
 
     *   `[ ]` test/`testbittorrentsubdirectories.cpp`
         *   `[ ]` New file proving `enumerateSubdirectories()`. Until the implementation element exists it fails to link with an unresolved symbol `enumerateSubdirectories`, and that link failure is its red state.
-        *   `[ ]` Form, includes and fixture root as `testbittorrentfilesearcher.cpp`, with `class TestBittorrentSubdirectories` and without `<QPromise>` and `"base/bittorrent/common.h"`. Expected keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`.
-        *   `[ ]` `testListsImmediateSubdirectories` — root `library` → two entries, `Album One` → `library/Album One` and `album two` → `library/album two`.
-        *   `[ ]` `testFilesAreNotListed` — root `library` → no entry for `loose.txt`.
-        *   `[ ]` `testNestedDirectoriesAreNotListed` — root `library` → no entry for `Disc 1`.
+        *   `[ ]` Form, includes and fixture root as `testbittorrentfilesearcher.cpp`, with `class TestBittorrentSubdirectories` and without `<QPromise>` and `"base/bittorrent/common.h"`. Add `<QFile>`, `<QFileInfo>`, `<QScopeGuard>` and `<QTemporaryDir>` for the slots building trees at run time, and `<QtSystemDetection>` for their platform guards. Expected keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and each value is compared as a `PathList`.
+        *   `[ ]` `testListsEveryDirectoryInTree` — root `library` → exactly the keys `Album One`, `Disc 1`, `album two`, `Genre`, `Artist`, `Album Three` and `Other`, with `Album One` → [`library/Album One`], `album two` → [`library/album two`], `Genre` → [`library/Genre`], `Artist` → [`library/Genre/Artist`], `Album Three` → [`library/Genre/Artist/Album Three`] and `Other` → [`library/Genre/Other`].
+        *   `[ ]` `testRepeatedNameListsEachInPathOrder` — root `library` → `Disc 1` → [`library/Album One/Disc 1`, `library/Genre/Other/Disc 1`].
+        *   `[ ]` `testFilesAndRootAreNotListed` — root `library` → no entry for `loose.txt`, `alpha.txt` or `library`.
+        *   `[ ]` `testHiddenDirectoriesAreNotEntered`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires dot-prefixed hidden directories.")` — in a `QTemporaryDir`, create `visible` and `.hidden/inner`, `QVERIFY` each setup operation → exactly the key `visible`.
+        *   `[ ]` `testSymbolicLinksAreNotFollowed`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires symbolic links.")` — in a `QTemporaryDir` `t`, create `real/inner`, then `QFile::link(t, real/loop)` and `QFile::link(real, linked)`, `QVERIFY` each setup operation → the walk returns, with exactly the keys `real` and `inner`, `real` → [`t/real`].
+        *   `[ ]` `testUnreadableBranchIsSkipped`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires Unix permission semantics.")` — in a `QTemporaryDir`, create `open/inside` and `closed/child`, remove the permissions of `closed` with `QFile::setPermissions(closed, {})`, and register a `qScopeGuard` restoring owner read, write and execute before `QTemporaryDir` cleans up. `QVERIFY` each setup operation. When `QFileInfo::exists()` still reports `closed/child`, use `QSKIP`, because the running account can traverse `closed`. Otherwise → exactly the keys `open`, `inside` and `closed`.
         *   `[ ]` `testAbsentRootYieldsEmptyMap` — root `absent` → empty.
         *   `[ ]` `testEmptyRootYieldsEmptyMap` — root `Path()` → empty.
-        *   `[ ]` `testKeysFoldCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — root `library` → the map holds the key `album one`.
+        *   `[ ]` `testKeysFoldCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — root `library` → the map holds the keys `album one` and `album three`.
 
     *   `[ ]` test/`CMakeLists.txt`
         *   `[ ]` Add `testbittorrentsubdirectories.cpp` to `testFiles` after `testbittorrentpeeraddress.cpp` and before `testbittorrenttorrentdescriptor.cpp`.
 
     *   `[ ]` src/base/bittorrent/`filesearcher.cpp`
-        *   `[ ]` Add `#include <QDir>` and `#include <QDirIterator>` before `#include <QPromise>`.
+        *   `[ ]` Add `#include <algorithm>` in a standard library group ahead of the Qt group, and `#include <QDir>`, `#include <QDirIterator>` and `#include <QFileInfo>` before `#include <QPromise>`.
         *   `[ ]` Add `foldedName` to the anonymous namespace, extend `candidateRoots()`, and define `enumerateSubdirectories()` after it, per the interaction spec.
 
     *   `[ ]` `directionality`
         *   `[ ]` `filesearcher` depends inward on `path` and Qt core alone, and on nothing that depends on it.
 
     *   `[ ]` `requirements`
-        *   `[ ]` EN-2, EN-3: `testListsImmediateSubdirectories`, `testFilesAreNotListed`, `testNestedDirectoriesAreNotListed`.
+        *   `[ ]` EN-2, EN-3: `testListsEveryDirectoryInTree`, `testRepeatedNameListsEachInPathOrder`, `testFilesAndRootAreNotListed`.
         *   `[ ]` EN-4, EN-5: `testKeysFoldCaseOnWindows`, `testLookupFoldsCaseOnWindows`; `SubdirectoryMap` is keyed on `QString`.
-        *   `[ ]` CR-8: `testEnumeratedRootServesNameFormByLookup`, `testEnumeratedNameFormUsesMappedPath`, `testEnumeratedRootOmitsNameFormOnMiss`.
-        *   `[ ]` PS-12: `testAbsentRootYieldsEmptyMap`, `testEmptyRootYieldsEmptyMap`.
+        *   `[ ]` EN-8: `testHiddenDirectoriesAreNotEntered` and `testSymbolicLinksAreNotFollowed` on Unix. Windows does not give an unprivileged unit test a stable way to create a junction, so the dependency map's manual case for step 22 verifies that a junction pointing back at its root is not entered.
+        *   `[ ]` CR-8: `testDeepHitContributesParentThenDirectory`, `testShallowHitParentCollapsesIntoRootForm`, `testEveryHitOfRepeatedNameContributes`, `testSourceHitsFollowNameHits`, `testSharedParentContributesOnce`, `testHitParentEqualToOwnPathIsExcluded`, `testUncontainedNameIsNotLookedUp`, `testEnumeratedRootContributesRootFormOnMiss`.
+        *   `[ ]` PS-12: `testAbsentRootYieldsEmptyMap`, `testEmptyRootYieldsEmptyMap`, and the Unix-only `testUnreadableBranchIsSkipped`.
         *   `[ ]` CN-1, CR-2: every existing slot of `testbittorrentcandidateroots.cpp`, `testbittorrentfilesearcher.cpp` and `testbittorrentfilesearchermultiroot.cpp` passes unmodified, alongside `testRootsBeyondMapsAreProbed` and `testNulloptMapIsProbed`.
         *   `[ ]` BT-3, BT-5, BT-6: `testbittorrentsubdirectories.cpp` is registered and uses fixtures under `test/testdata/filesearcher`; the new `testbittorrentcandidateroots.cpp` slots use none.
 
@@ -1066,7 +1279,7 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[ ]` `objective`
         *   `[ ]` Problem: the composition behind every discovery searches only the torrent's own paths and the watched folder save paths, so neither a configured discovery root nor a directory the user points at is searched.
         *   `[ ]` Functional: compose the search roots as a pointed root where one is supplied, then the discovery roots in the order configured, then the watched folder save paths, all after the torrent's own save path and download path.
-        *   `[ ]` Functional: list the pointed root and every discovery root marked recursive once for the operation that needs it, and hand those maps to `candidateRoots()`; a batch reuses the same maps for every torrent it submits, and an automatic addition reuses the maps of an add operation still in flight whose composed roots and default save path are unchanged.
+        *   `[ ]` Functional: walk the tree beneath the pointed root and every discovery root marked recursive once for the operation that needs it, and hand those maps to `candidateRoots()`; a batch reuses the same maps for every torrent it submits, and an automatic addition reuses the maps of an add operation still in flight whose composed roots and default save path are unchanged.
         *   `[ ]` Functional: accept a list of torrent IDs and an optional pointed root through `findTorrentLocations()`, use the pointed root for that operation alone, writing nothing to the discovery root list, report each result through the existing per-torrent signal as it completes, and enumerate the operation's roots once rather than once per torrent.
         *   `[ ]` Functional: `findTorrentLocation()` keeps its declaration and its outcome, and runs as a one-torrent batch.
         *   `[ ]` Functional: record the exact search root and whether it was the pointed root, a discovery root or a watched folder root, without inferring provenance from ancestry.
@@ -1148,6 +1361,32 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[ ]` EN-6: a multi-torrent invocation is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
         *   `[ ]` IF-13: each outcome still arrives through `torrentLocationFound` as its search completes; Epic 2 integration scenarios 4 and 5 still pass.
 
+*   `[ ]` [API] src/webui/api/`torrentscontroller` — submit each `torrents/findLocation` request's new IDs through one `Session::findTorrentLocations()` call, so a multi-torrent request enumerates each recursive root once, and accept an optional `root` as that operation's pointed root. T22, T25
+
+    *   `[ ]` `objective`
+        *   `[ ]` Problem: the second epic's `findLocationAction()` calls `findTorrentLocation()` once per registered ID, so each torrent would be its own operation and list every recursive discovery root again.
+        *   `[ ]` Problem: a client of the web interface or the headless daemon cannot point a search at a directory, which the desktop unmatched list does through **Search folder...**.
+        *   `[ ]` Functional: one request's newly registered IDs form one operation.
+        *   `[ ]` Functional: a request carrying `root` searches its newly registered IDs with that directory as the pointed root, and writes the directory nowhere.
+
+    *   `[ ]` `context_slice`
+        *   `[ ]` `findLocationAction()`, `submitted`, `m_findLocationOperation` and `onTorrentLocationFound()` are those the second epic's `torrentscontroller` node defines.
+
+    *   `[ ]` src/webui/api/`torrentscontroller.cpp`
+        *   `[ ]` In `findLocationAction()`, after the disabled test, read `const Path root {params()[u"root"_s].trimmed()};`. A non-empty `root` for which `!Utils::Fs::isDir(root)` → `throw APIError(APIErrorType::Conflict, tr("Folder does not exist"))`, before any ID is registered.
+        *   `[ ]` In `findLocationAction()`, the calls to `findTorrentLocation()` over `submitted` become one `BitTorrent::Session::instance()->findTorrentLocations(submitted, root);`, made only when `submitted` is non-empty, so an empty `root` is no pointed root. Registration of every ID before that call, the operation map, `onTorrentLocationFound()`, assignment and the answer are unchanged.
+
+    *   `[ ]` `directionality`
+        *   `[ ]` `torrentscontroller` depends downward on `Session` as it already does, and writes nothing to `DiscoveryRoots`.
+
+    *   `[ ]` `requirements`
+        *   `[ ]` EN-6: a multi-torrent request is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
+        *   `[ ]` IF-20: a request carrying an existing `root` searches its registered torrents with it as the pointed root; a `root` that is not an existing directory answers HTTP 409 and registers nothing.
+        *   `[ ]` ST-8: `root` reaches only `findTorrentLocations()`.
+        *   `[ ]` IF-12: the new message passes through `tr()`.
+        *   `[ ]` Verify the parameter through Epic 3 integration scenario 10 at the commit boundary.
+        *   `[ ]` IF-13: each outcome still arrives through `torrentLocationFound` as its search completes; Epic 2 integration scenarios 18 and 19 still pass.
+
 *   `[ ]` [UI] src/gui/`discoveryrootsmodel` — add `DiscoveryRootsModel`, a `QAbstractListModel` over the discovery root list, following `WatchedFoldersModel`, holding edits until `apply()` writes the list through `DiscoveryRoots::setRoots()`. T19
 
     *   `[ ]` `objective`
@@ -1225,7 +1464,7 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[ ]` `class DiscoveryRootOptionsDialog final : public QDialog` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRootOptionsDialog)`, declaring public `explicit DiscoveryRootOptionsDialog(const DiscoveryRootOptions &options, QWidget *parent);`, `~DiscoveryRootOptionsDialog() override;` and `DiscoveryRootOptions discoveryRootOptions() const;`, and private `Ui::DiscoveryRootOptionsDialog *m_ui = nullptr;`.
 
     *   `[ ]` src/gui/`discoveryrootoptionsdialog.ui`
-        *   `[ ]` New file in the form of `watchedfolderoptionsdialog.ui`: class `DiscoveryRootOptionsDialog`, a `QDialog` with `windowTitle` `Discovery Root Options`, laid out by a `QVBoxLayout` named `verticalLayout` holding, in order, a `QCheckBox` named `checkBoxRecursive` with `text` `Recursive mode` and `toolTip` `Search each immediate subfolder of this folder for a folder named as the torrent.`, a vertical spacer, and a `QDialogButtonBox` named `buttonBox` with `standardButtons` `QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok`.
+        *   `[ ]` New file in the form of `watchedfolderoptionsdialog.ui`: class `DiscoveryRootOptionsDialog`, a `QDialog` with `windowTitle` `Discovery Root Options`, laid out by a `QVBoxLayout` named `verticalLayout` holding, in order, a `QCheckBox` named `checkBoxRecursive` with `text` `Recursive mode` and `toolTip` `Search every folder beneath this folder, at any depth, for a folder named as the torrent or its .torrent file.`, a vertical spacer, and a `QDialogButtonBox` named `buttonBox` with `standardButtons` `QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok`.
 
     *   `[ ]` `interaction.spec`
         *   `[ ]` Constructor: the initialiser list is `QDialog {parent}` then `m_ui {new Ui::DiscoveryRootOptionsDialog}`, as `WatchedFolderOptionsDialog` allocates its `m_ui`; the body calls `m_ui->setupUi(this)`, checks `checkBoxRecursive` as `options.recursive`, and connects `buttonBox` `accepted` and `rejected` to `accept()` and `reject()`. The destructor deletes `m_ui`.
@@ -1345,6 +1584,47 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[ ]` IF-12: the button and dialog titles are wrapped in `tr()`.
         *   `[ ]` The action is verified by the dependency map's manual case for step 20.
 
+*   `[ ]` [UI] src/webui/www/private/`unmatchedtorrents.html` — add **Search folder...**, posting every listed torrent to `torrents/findLocation` with the directory in the path field as `root`, polling until the operation completes, and removing each torrent the answer reports matched, repeatable while entries remain. T25
+
+    *   `[ ]` `objective`
+        *   `[ ]` Problem: a web interface user looking at torrents that matched nothing, and knowing which directory holds them, can only set each location by hand, while the desktop list searches a chosen directory.
+        *   `[ ]` Functional: a button searching the directory entered in the path field for every listed torrent as one operation; each torrent found there is assigned its location and leaves the list, each torrent not found stays.
+        *   `[ ]` Functional: the button is available again once its search completes while entries remain, so a library across several disks is covered one directory at a time.
+        *   `[ ]` Non-functional: the directory is used for that search alone and written nowhere; the button is a native element reachable by Tab, and its label passes through `QBT_TR`.
+
+    *   `[ ]` `role`
+        *   `[ ]` Presentation in `src/webui/www`, the window the second epic's `unmatchedtorrents.html` node adds.
+        *   `[ ]` Out of scope: enumeration, composition and assignment, which are the `sessionimpl` and `torrentscontroller` nodes.
+
+    *   `[ ]` `module`
+        *   `[ ]` Inside: the button, its request and poll, and removing matched entries. Outside: discovery and assignment.
+
+    *   `[ ]` `deps`
+        *   `[ ]` `torrents/findLocation` with `root`, from this epic's `torrentscontroller` node.
+
+    *   `[ ]` `context_slice`
+        *   `[ ]` The option list `unmatchedTorrents`, the path field `unmatchedLocation`, `error_div`, **Set location...**, the close behaviour and the label `unmatchedLabel` are those the second epic's `unmatchedtorrents.html` node defines. `torrents/findLocation` answers HTTP 202 while any torrent is pending and HTTP 200 with `matched` and `unmatched` once none is, and a request without `hashes` registers nothing.
+
+    *   `[ ]` `interaction.spec`
+        *   `[ ]` **Search folder...**: no option → return. An empty trimmed path → write the empty-path message into `error_div` and return. Otherwise disable the button, clear `error_div`, and post `hashes` holding every option's `value` joined by `|` and `root` holding the path to `api/v2/torrents/findLocation`.
+        *   `[ ]` Each response: not ok → write its text into `error_div` and enable the button. HTTP 202 → one second later, post to `api/v2/torrents/findLocation` without `hashes` and handle that response the same way. HTTP 200 → remove every option whose `value` the answer's `matched` names by `hash`, enable the button, and close the window when no option remains, or else select the first option and write its save path into the field. An option named by neither list stays.
+
+    *   `[ ]` src/webui/www/private/`unmatchedtorrents.html`
+        *   `[ ]` Before `setLocationButton`, add `<input type="button" value="QBT_TR(Search folder...)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="searchFolderButton">`.
+        *   `[ ]` `unmatchedLabel`'s text becomes `QBT_TR(No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]`, the desktop dialog's string.
+        *   `[ ]` Add the handler per the interaction spec.
+
+    *   `[ ]` `directionality`
+        *   `[ ]` The page consumes the WebAPI alone and writes nothing to the discovery root list.
+
+    *   `[ ]` `requirements`
+        *   `[ ]` IF-10: the web interface list accepts a directory to search, and another while entries remain.
+        *   `[ ]` IF-20: **Search folder...** posts the listed torrents with the entered directory as `root`.
+        *   `[ ]` ST-8: the directory reaches only the request.
+        *   `[ ]` IF-12: the button and label pass through `QBT_TR`.
+        *   `[ ]` BT-9: `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
+        *   `[ ]` Verify the action through the dependency map's manual case for step 25 and Epic 3 integration scenario 10 at the commit boundary.
+
 *   `[ ]` [API] src/webui/api/`appcontroller` — expose `find_location_discovery_roots` on `app/preferences` and `app/setPreferences` as an array of objects carrying `path` and `recursive`, returned in the WebAPI's native path form and received through `parseDiscoveryRoots()`. T21
 
     *   `[ ]` `objective`
@@ -1425,11 +1705,11 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[ ]` The `CI - WebUI` workflow's `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
         *   `[ ]` The page is verified by the dependency map's manual case for step 21 and the WebUI case at the Epic 3 commit boundary.
 
-*   `[ ]` [DOCS] `WebAPI_Changelog` — record `find_location_discovery_roots` on `app/preferences` and `app/setPreferences` under the version heading at the top of the file. T21
+*   `[ ]` [DOCS] `WebAPI_Changelog` — record `find_location_discovery_roots` on `app/preferences` and `app/setPreferences`, and the `root` parameter of `torrents/findLocation`, under the version heading at the top of the file. T21, T25
 
     *   `[ ]` `objective`
-        *   `[ ]` Problem: WebAPI clients learn of new preference keys from this file, and one key joins both preference endpoints.
-        *   `[ ]` Functional: add one entry under the version heading at the top of the file when the branch is rebased, linking this submission's pull request and naming the key and its shape on both endpoints. Leave `API_VERSION` and the version headings unchanged; any version decision is the maintainers'.
+        *   `[ ]` Problem: WebAPI clients learn of new preference keys and parameters from this file, and one key joins both preference endpoints while one parameter joins `torrents/findLocation`.
+        *   `[ ]` Functional: add one entry under the version heading at the top of the file when the branch is rebased, linking this submission's pull request, naming the key and its shape on both endpoints, and naming the parameter. Leave `API_VERSION` and the version headings unchanged; any version decision is the maintainers'.
 
     *   `[ ]` `context_slice`
         *   `[ ]` The entries the first and second epics' `WebAPI_Changelog` nodes add are the wording model. Entries under a heading run newest first.
@@ -1439,24 +1719,27 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[ ]` The entry is a top-level bullet linking the pull request, `* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)`, where `<number>` is the number GitHub assigns when this submission's pull request is opened.
         *   `[ ]` Under it, the indented bullet ``* `app/preferences` endpoint includes `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option``.
         *   `[ ]` Under it, the indented bullet ``* `app/setPreferences` endpoint allows to set `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option``.
+        *   `[ ]` Under it, the indented bullet ``* `torrents/findLocation` endpoint accepts optional parameter `root` (string), an existing directory searched ahead of every other root for the torrents that request registers``.
 
     *   `[ ]` `requirements`
-        *   `[ ]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the key it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
+        *   `[ ]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the key and parameter it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
         *   `[ ]` The file passes the `rumdl` pre-commit hook.
 
 *   `[ ]` **Commit** `Search discovery roots and pointed folders`
-    *   `[ ]` Structural: `DiscoveryRootOptions`, `DiscoveryRoot`, `DiscoveryRoots`, `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`; `SubdirectoryMap` and `enumerateSubdirectories()`; `candidateRoots()` taking optional subdirectory maps; `Session::findTorrentLocations()` taking torrent IDs and a pointed root; `SessionImpl::SearchOperation` and `SessionImpl::createSearchOperation()`; `DiscoveryRootsModel` and `DiscoveryRootOptionsDialog`; the discovery root list in the options dialog and web interface; **Search folder...** in the unmatched list; two test executables and their fixtures.
-    *   `[ ]` Behavioural: every operation composes a pointed root, then the discovery roots in configured order, then the watched folder save paths, listing recursive roots and the pointed root once per operation and matching each torrent's name against that listing; automatic additions share an unchanged add operation while it is in flight and otherwise each form their own, and a transfer-list invocation or a **Search folder...** action is one batch operation; the log names the exact root that produced each found location; the unmatched list searches a chosen folder for its entries.
-    *   `[ ]` Contract: `candidateRoots()` callers supplying no maps behave as before; `findTorrentLocation()` keeps its declaration and outcomes; `app/preferences` and `app/setPreferences` gain `find_location_discovery_roots`, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged.
-    *   `[ ]` **Integration scenario 1 — batch enumeration:** configure one recursive discovery root holding one subdirectory per torrent, and watch directory listings of that root with `inotifywait -m -e open` on Linux or Process Monitor's `QueryDirectory` events on Windows. Run **Find location** over three torrents, then **Search folder...** on that root with three unmatched entries; confirm each operation lists the discovery root once and the pointed root once, and each torrent's outcome is still reported and assigned as its own search completes. Add one torrent; confirm that addition lists the root once.
+    *   `[ ]` Structural: `DiscoveryRootOptions`, `DiscoveryRoot`, `DiscoveryRoots`, `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`; `SubdirectoryMap` and `enumerateSubdirectories()`; `candidateRoots()` taking optional subdirectory maps holding every directory per name; `Session::findTorrentLocations()` taking torrent IDs and a pointed root; `SessionImpl::SearchOperation` and `SessionImpl::createSearchOperation()`; `DiscoveryRootsModel` and `DiscoveryRootOptionsDialog`; the discovery root list in the options dialog and web interface; **Search folder...** in the desktop and web interface unmatched lists; the `root` parameter of `torrents/findLocation`; two test executables and their fixtures.
+    *   `[ ]` Behavioural: every operation composes a pointed root, then the discovery roots in configured order, then the watched folder save paths, walking every directory beneath recursive roots and the pointed root once per operation and matching each torrent's name and source name against that listing at any depth, each directory found contributing its parent then itself; automatic additions share an unchanged add operation while it is in flight and otherwise each form their own, and a transfer-list invocation, a `torrents/findLocation` request or a **Search folder...** action is one batch operation; the log names the exact root that produced each found location; the desktop and web interface unmatched lists search a chosen folder for their entries, and a `torrents/findLocation` request searches the folder its `root` names; every mode is offered by the desktop interface, the web interface and the WebAPI alike.
+    *   `[ ]` Contract: `candidateRoots()` callers supplying no maps behave as before; `findTorrentLocation()` keeps its declaration and outcomes; `app/preferences` and `app/setPreferences` gain `find_location_discovery_roots` and `torrents/findLocation` gains `root`, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged; a request without `root` behaves as the second epic defines.
+    *   `[ ]` **Integration scenario 1 — batch enumeration:** configure one recursive discovery root holding one content folder per torrent, one directly beneath the root and the others beneath one and two determinant folders, and watch directory listings of that tree with `inotifywait -m -r -e open` on Linux or Process Monitor's `QueryDirectory` events on Windows. Run **Find location** over three torrents, post `torrents/findLocation` naming three torrents, then **Search folder...** on that root with three unmatched entries; confirm each operation lists each directory of the discovery root's tree once and each directory of the pointed root's tree once, and each torrent's outcome is still reported and assigned as its own search completes. Add one torrent; confirm that addition lists each directory of the root's tree once.
     *   `[ ]` **Integration scenario 2 — overlapping origins:** configure a watched folder save path `W`, a discovery root `W/library` and a discovery root `W/library/sub`, and point **Search folder...** at `W/library`. With content placed where only the pointed root's candidates reach it, only a discovery root's candidates reach it, and only the watched folder's candidates reach it, confirm the log names the pointed root, that exact discovery root and the watched folder save path respectively, and never a nested root that merely contains the winner.
     *   `[ ]` **Integration scenario 3 — persistence:** configure at least two roots in a meaningful order with different recursion flags; apply, exit normally, restart, and confirm the exact paths, order and flags in the options dialog and in `app/preferences`. Remove one root and change another's flag, restart again, and confirm the change persisted.
     *   `[ ]` **Integration scenario 4 — absent and malformed files:** start with no `discovery_roots.json` and confirm the list is empty and no warning is logged. Then start with malformed JSON, and again with a JSON object at the top level; each time confirm the application remains usable, the list is empty, and the expected warning is logged.
     *   `[ ]` **Integration scenario 5 — unchanged writes:** with roots configured and one selected in the options dialog, change and apply an unrelated Downloads setting; confirm `discovery_roots.json`'s modification time is unchanged and the list keeps its selection, so the model was not reset. Send `app/setPreferences` with an unchanged `find_location_discovery_roots` and confirm the same.
     *   `[ ]` **Integration scenario 6 — path forms:** on Windows, confirm `app/preferences` returns each discovery root path with the same separators as `save_path` and the `scan_dirs` keys, that sending those values back leaves the list unchanged, and that `discovery_roots.json` holds each path in its `Path::data()` form.
     *   `[ ]` **Integration scenario 7 — web interface:** add three roots, remove the middle one, and save; confirm the remaining two are returned in order. Uncheck the legend checkbox; confirm every discovery root control and **Add...** are disabled and skipped by Tab, and that saving keeps the list. Operate **Add...** and **Remove** by keyboard alone and confirm focus moves as specified.
-    *   `[ ]` **Integration scenario 8 — automatic addition burst:** configure one recursive discovery root holding one subdirectory per torrent, watch its directory listings as in scenario 1, and drop a batch of `.torrent` files into a watched folder while that root is being listed; confirm the root is listed once for the additions arriving during that listing, and that each of those torrents whose directory sits in the root is found through the listing.
-    *   `[ ]` Commit after the manual cases for steps 19 through 22 and the eight integration scenarios pass, the Epic 2 integration scenarios still pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
+    *   `[ ]` **Integration scenario 8 — automatic addition burst:** configure one recursive discovery root holding one content folder per torrent at varying depths, watch its directory listings as in scenario 1, and drop a batch of `.torrent` files into a watched folder while that root is being walked; confirm each directory of the root's tree is listed once for the additions arriving during that walk, and that each of those torrents whose content folder sits in the tree is found through the listing.
+    *   `[ ]` **Integration scenario 9 — structured volume:** configure a recursive discovery root `V` holding a multi-file torrent's content at `V/someDeterminant/someOtherDeterminant/contentFolder/content`, a single-file torrent's file at `V/Category/Stem/Stem.ext` where `Stem.ext` is the torrent's file and the torrent is added under the Original content layout, and two copies of a third torrent's folder, named `Disc 1`, at `V/A/Disc 1` holding one of its files and `V/B/Disc 1` holding all of them. Add a hidden directory and a symbolic link on Linux, or a junction on Windows, inside `V` pointing at `V`. Add the three torrents in manual mode; confirm the first resolves to `V/someDeterminant/someOtherDeterminant`, the second to `V/Category/Stem`, and the third to `V/B`, each logged as found in the discovery root `V`, each completing its check without transferring content. Confirm with the listing watch from scenario 1 that the walk finishes, lists each real directory once, and neither lists nor enters the hidden directory, the link or the junction.
+    *   `[ ]` **Integration scenario 10 — pointed root through the WebAPI and web interface:** with three torrents whose content sits only beneath a directory `P` that is neither a discovery root nor a watched folder save path, run **Find location** in the web interface and confirm `unmatchedtorrents.html` lists all three. Enter a directory holding none of them and use **Search folder...**; confirm the button is disabled until the search completes and all three stay. Enter `P` and use **Search folder...**; confirm, with the listing watch from scenario 1, that `P`'s tree is listed once, that each torrent is assigned, logged as found in the pointed root `P` and removed, and that the window closes. Repeat with the content split across `P` and a second directory `Q`, searching `P` then `Q`, and confirm the list shrinks at each step. Post `torrents/findLocation` naming the three torrents with `root` set to `P` and confirm the same assignments; with `root` naming a missing directory, confirm HTTP 409 and no search. Confirm `P` appears in neither `discovery_roots.json` nor `app/preferences`.
+    *   `[ ]` Commit after the manual cases for steps 19 through 22 and 25 and the ten integration scenarios pass, the Epic 2 integration scenarios still pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
 
 # To Do
 
@@ -1466,3 +1749,11 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   Current code-level hypothesis: `TorrentImpl::forceRecheck()` starts a stopped torrent so it can check and relies on `TorrentImpl::handleTorrentChecked()` to satisfy `StopCondition::FilesChecked` and stop it again. If checking fails before `torrent_checked_alert`, that completion path does not run. A later retry may call libtorrent's `force_recheck()` while the previous error is still set, then update qBittorrent's cached state to checking even though no new check begins. Confirm this hypothesis against the alert sequence before changing code.
     *   Until the underlying defect is fixed, Find Location must handle recheck failure defensively: it must not honor a pending start request, must clear its own pending transaction state, and must leave the torrent stopped and able to retry. It must not treat the cached **Checking** state as evidence that a recheck began or succeeded.
     *   When returning to this issue, reproduce it against the then-current qBittorrent, libtorrent, Qt and operating-system versions; capture the execution-log filename, operation and error; review related issue [#21443](https://github.com/qbittorrent/qBittorrent/issues/21443); and have a human contributor update #14216 or submit the eventual fix in accordance with the repository contribution policy.
+
+*   `[ ]` Fix the pre-existing **Recursive mode** display defect in the watched folder options dialog, as a separate submission independent of the Find Location feature.
+    *   The `WatchedFolderOptionsDialog` constructor passes `watchedFolderOptions.addTorrentParams` to `AddTorrentParamsWidget` and never initialises `checkBoxRecursive` from `watchedFolderOptions.recursive`, so the checkbox opens unchecked whatever the stored value.
+    *   `watchedFolderOptions()` reads the checkbox on OK, `WatchedFoldersModel::setFolderOptions()` holds it, and `WatchedFoldersModel::apply()` writes it through `TorrentFilesWatcher::setWatchedFolder()`, so a checked box followed by **Apply** persists `recursive: true` to `watched_folders.json`. Reopening that folder's options shows the box unchecked, and accepting the dialog then writes `recursive: false` on the next **Apply**.
+    *   This behaviour is reproducible without Find Location. The feature's only edit to the watched folder path is `TorrentFilesWatcher::updateSessionWatchedFolderSavePaths()`, which reads save paths and touches neither the recursion flag, the dialog nor the model.
+    *   Fix: in the `WatchedFolderOptionsDialog` constructor, directly after `m_ui->setupUi(this);`, add `m_ui->checkBoxRecursive->setChecked(watchedFolderOptions.recursive);`.
+    *   Verification: check **Recursive mode**, accept, **Apply**, reopen the folder's options and confirm the box is checked; accept again, **Apply**, and confirm `watched_folders.json` still holds `"recursive": true`. Uncheck, accept, **Apply**, reopen and confirm the box is unchecked and the file holds `"recursive": false`.
+    *   Before submitting, confirm the defect is still present on upstream `master`. The Epic 3 `DiscoveryRootOptionsDialog` copies this dialog's form; its constructor initialises `checkBoxRecursive` from `options.recursive`, and its review confirms that line is present.

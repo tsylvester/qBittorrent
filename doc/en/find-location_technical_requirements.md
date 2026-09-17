@@ -8,7 +8,7 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 
 * **Own paths** — the torrent's save path and download path. They are probed and scored, and are never candidates.
 * **Search root** — a directory supplied to `candidateRoots()` to be searched, distinct from the torrent's own paths, which arrive as their own parameters. Its origins are the discovery root list, the watched folder save paths, and a pointed root. CR-3 fixes their order among themselves; PS-5 fixes where their candidates are scored relative to the own paths.
-* **Candidate** — a search-only directory, derived from a search root by CR-4 in the root form, the name form or the source form.
+* **Candidate** — a search-only directory, derived from a search root by CR-4 in the root form, the name form or the source form, or from an enumeration map by CR-8.
 * **Destination** — where a miss places the torrent and where incomplete files are written. CR-7 fixes its derivation, and PS-7 and PS-11 turn on it.
 * **Discovery root** — a search root the user configured, held with its own options.
 * **Pointed root** — a search root the user chose for a single operation, held for no longer than that operation.
@@ -26,7 +26,7 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **CR-5** (E1) An empty search root entry shall take the supplied default save path in its place.
 * **CR-6** (E1) Duplicate candidates shall be collapsed by `Path` equality, retaining the earliest occurrence and its position, so duplicates fold case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`.
 * **CR-7** (E1) The **destination** shall be the torrent's download path where one is set and its save path otherwise. It is where a miss places the torrent and where incomplete files are written. Any scored directory may win a match; only the destination serves as the fallback.
-* **CR-8** (E3) An enumerated root shall contribute the root form and the source form, the name form being served by a lookup against the enumeration map and omitted when the lookup finds nothing.
+* **CR-8** (E3) An enumerated root shall contribute the root form, then, for each directory its enumeration map holds under the torrent's name, and then for each directory it holds under the `.torrent` file's name with its extension removed, that directory's parent followed by the directory itself. It shall contribute no probed name form or source form. A lookup finding nothing contributes nothing, and a name CR-11 would drop is not looked up.
 * **CR-9** (E1) `TorrentFilesWatcher` shall push the configured save path of every watched folder, ordered by watched folder path, into the session through `Session::setWatchedFolderSavePaths()`. The session shall resolve a relative entry against its default save path and compose `searchRoots` from the pushed list, the session default save path and the settings gating them. Composition shall have one implementation, `searchExistingContent()`, which every call site reaches.
 * **CR-10** (E3) The same composition shall read the discovery root list, place those roots ahead of the watched folder save paths within `searchRoots`, and supply the enumeration map for the pointed root and for the roots marked recursive.
 * **CR-11** (E1) A name form or source form whose name is empty, absolute, or begins with `.` or `..` shall be dropped, so no candidate resolves outside its root.
@@ -44,17 +44,18 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **PS-9** (E1) Scoring shall leave the supplied file name list unmodified.
 * **PS-10** (E1) No completion threshold shall be applied. A torrent whose check reports any recoverable content shall keep the location discovery selected, at whatever proportion the check reports.
 * **PS-11** (E1) `forceAppendExt` shall be applied to the destination alone, never to a candidate.
-* **PS-12** (E1, E3) A search root that cannot be read shall yield a count of zero, and an enumerated one an empty map. Neither shall fail the operation or displace another root's result.
+* **PS-12** (E1, E3) A search root that cannot be read shall yield a count of zero, and an enumerated one an empty map. A directory beneath an enumerated root that cannot be read shall contribute no entry beneath it. None shall fail the operation or displace another root's result.
 
 ## Enumeration
 
 * **EN-1** (E3) A discovery root shall carry a recursion flag.
-* **EN-2** (E3) A root whose flag is set, and a pointed root, shall have its immediate subdirectories listed once per operation. Each `findTorrentLocations()` call and each **Search folder...** action is one operation; an automatic addition shares an add operation still in flight whose composed roots and default save path are unchanged, and otherwise forms its own.
-* **EN-3** (E3) The listing shall be a map from subdirectory name to path.
+* **EN-2** (E3) A root whose flag is set, and a pointed root, shall have every directory beneath it, at any depth, listed once per operation. Each `findTorrentLocations()` call and each **Search folder...** action is one operation; an automatic addition shares an add operation still in flight whose composed roots and default save path are unchanged, and otherwise forms its own.
+* **EN-3** (E3) The listing shall be a map from subdirectory name to every listed directory bearing that name, ordered by `Path::data()`.
 * **EN-4** (E3) Map keys and lookups shall be folded to a single case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, so a lookup resolves what `exists()` resolves on that platform.
 * **EN-5** (E3) The map shall be keyed on a folded name. `Path` is unsuitable as a key, its equality honouring `Path::CASE_SENSITIVITY` while its hash does not.
 * **EN-6** (E3) The map shall be discarded when the last search of the operation that built it ends. No session-lived filesystem cache is kept.
 * **EN-7** (E3) A pointed root shall be enumerated on the same terms as a recursive discovery root.
+* **EN-8** (E3) The listing shall neither list nor descend into a hidden directory, a symbolic link or a junction, so a link cannot return the walk to a directory already listed.
 
 ## Resolution
 
@@ -80,7 +81,7 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 
 ## Start transactions
 
-* **TX-1** (E2) While the feature gate and **Find location when starting stopped torrents** are enabled, a normal or forced Start request for a stopped manual-mode torrent that is not checking shall create its Start transaction before ordinary Start behaviour changes the torrent's stopped state or initiates payload activity. A torrent in automatic torrent management, a checking torrent, or a request made while either setting is disabled, shall follow ordinary Start behaviour without a transaction.
+* **TX-1** (E2) While the feature gate and **Find location when starting stopped torrents** are enabled, a normal or forced Start request for a stopped manual-mode torrent that is not checking shall create its Start transaction before ordinary Start behaviour changes the torrent's stopped state or initiates payload activity. A torrent in automatic torrent management, a checking torrent, or a request made while either setting is disabled, shall follow ordinary Start behaviour without a transaction. A torrent is checking while libtorrent reports it checking files or resume data, which includes a stopped torrent never yet checked whose files are already on disk.
 * **TX-2** (E2) From interception until TX-4 permits Start, the torrent shall remain held against creation, allocation or writing of payload files, requests for content pieces, and every other transition into payload download. A torrent without metadata may exchange metadata alone; metadata receipt shall continue the same transaction and shall not release its payload hold.
 * **TX-3** (E2) For every match, phases shall occur in this order: discovery completes; a location outside the torrent's current save path and download path is assigned without overwriting it from the previous location; any required storage movement completes with the selected location reported as actual; the feature issues a recheck at the matched location; that exact recheck reports successful completion; the pending Start is released. A match at the current save path or download path skips assignment and movement but not recheck. The recheck is mandatory regardless of **Recheck automatically**, and no later phase shall begin before the preceding condition holds.
 * **TX-4** (E2) A successful search with no match shall release the ordinary Start workflow at the configured destination. Every match shall release only after TX-3. Complete checked content shall seed, and partial checked content shall download only pieces the recheck found missing.
@@ -108,17 +109,21 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **IF-3** (E3) The discovery root list shall offer a per-root dialog carrying the recursion flag.
 * **IF-4** (E1, E2, E3) Every setting shall be exposed on `app/preferences` and `app/setPreferences`.
 * **IF-5** (E1, E2, E3) Every setting shall have a control on the web interface preferences page.
-* **IF-6** (E1, E2, E3) Each submission shall add one `WebAPI_Changelog.md` entry, under the version heading at the top of the file, naming the keys it introduces and linking its pull request. `API_VERSION` and the version headings are set by the maintainers.
+* **IF-6** (E1, E2, E3) Each submission shall add one `WebAPI_Changelog.md` entry, under the version heading at the top of the file, naming the keys and actions it introduces and linking its pull request. `API_VERSION` and the version headings are set by the maintainers.
 * **IF-7** (E2) A **Find location** action shall appear in the transfer list context menu directly after **Set location...**, over single and multiple selections, while the selection holds metadata and the feature group is enabled.
 * **IF-8** (E2) Where discovery finds no match, the **Set location** dialog shall open.
 * **IF-9** (E2) Torrents in a batch that matched nothing shall be presented as a list the user can walk or abandon.
-* **IF-10** (E3) The unmatched list shall accept a directory to search, and shall accept another while entries remain.
-* **IF-11** (E2) The GUI shall reach discovery through the `BitTorrent::Session` interface.
+* **IF-10** (E3) The unmatched list, in the desktop interface and in the web interface, shall accept a directory to search, and shall accept another while entries remain.
+* **IF-11** (E2) The GUI and the WebAPI shall reach discovery and assignment through the `BitTorrent::Session` interface.
 * **IF-12** (E1, E2, E3) Every user-facing string shall be translatable through `tr()`.
 * **IF-13** (E2) The session discovery virtual shall be a `void` operation reporting through a completion signal carrying one torrent's result, so a batch receives each outcome as that torrent completes rather than one result for the selection.
 * **IF-14** (E2) The options dialog group and WebUI preferences shall each offer a checkbox labelled **Find location when starting stopped torrents**, backed by the ST-9 setting.
 * **IF-15** (E3) `Session::findTorrentLocations()` shall take a list of torrent IDs and an optional pointed root as one operation, reporting each torrent's result through the IF-13 completion signal. `findTorrentLocation()` shall keep its declaration and run as a one-torrent batch.
 * **IF-16** (E3) `app/preferences` shall return each discovery root path in the native form it returns for `save_path` and the `scan_dirs` keys, while `discovery_roots.json` holds the `Path::data()` form.
+* **IF-17** (E2) `torrents/findLocation`, accepted by POST alone, shall take an optional `hashes` as the other torrent actions take it. While the feature group is enabled it shall run discovery through `Session::findTorrentLocation()` for each named torrent holding metadata that is not already part of the web session's active operation, assign each match through `Session::assignTorrentLocation()` as its outcome arrives, and answer with the operation's pending, assigned and unmatched torrents: HTTP 202 while any torrent is pending, and HTTP 200 once none is, which ends the operation. A request without `hashes` shall register nothing and report the active operation, or empty lists with HTTP 200 where none is active. While the group is disabled it shall answer HTTP 409 and search nothing.
+* **IF-18** (E2) `torrents/assignLocation`, accepted by POST alone, shall take `hashes` and `location` and assign the location to each named torrent through `Session::assignTorrentLocation()`. An empty location shall answer HTTP 400, and a location that is not an existing directory HTTP 409, creating nothing.
+* **IF-19** (E2) The web interface shall offer **Find location** directly after **Set location...** in its transfer list context menu while the selection holds a torrent with metadata and `find_location_enabled` holds. One unmatched torrent shall open the **Set location** window assigning through `torrents/assignLocation`; several shall open a window listing them, assigning each entered location through the same action, and closing when abandoned or empty.
+* **IF-20** (E3) `torrents/findLocation` shall take an optional `root`. With `root` present, the torrents a request registers shall be searched through one `Session::findTorrentLocations()` call carrying `root` as the pointed root; a `root` that is not an existing directory shall answer HTTP 409 and register nothing. `root` shall be written nowhere, and a request registering no torrent shall ignore it. The web interface unmatched list shall offer **Search folder...**, posting its listed torrents with the entered directory as `root`.
 
 ## Logging
 
@@ -138,6 +143,7 @@ Each requirement carries an identifier and the submission that delivers it: **E1
 * **BT-7** (E1, E2, E3) The suite shall pass under `-DTESTING=ON` on Ubuntu, macOS and Windows.
 * **BT-8** (E2) Verification shall independently exercise TX-1 through TX-8, including normal and forced Start, metadata-only acquisition, a match at an own path, a match requiring assignment, a miss, repeated Start, Stop cancellation, removal and shutdown during an asynchronous phase, and one failure at each fallible phase.
 * **BT-9** (E1, E2, E3) The WebUI `npm run lint` shall pass, `npm run format` shall leave the files unchanged, and `WebAPI_Changelog.md` shall pass `rumdl`.
+* **BT-10** (E2) New web interface pages shall be registered in `src/webui/www/webui.qrc`, and new WebAPI actions accepting POST alone in `WebApplication::m_allowedMethod`.
 
 The manual verification cases and integration scenarios are set out in [the workplan](find-location_workplan.md).
 
@@ -177,6 +183,8 @@ flowchart TD
             T13["T13 transfer list action"]
             T14["T14 unmatched list"]
             T15["T15 transaction and assignment surfaces"]
+            T23["T23 WebAPI discovery actions"]
+            T24["T24 web interface action and unmatched list"]
         end
         subgraph e3["Epic 3 — discovery roots"]
             T16["T16 discovery root storage"]
@@ -186,6 +194,7 @@ flowchart TD
             T20["T20 pointed root"]
             T21["T21 discovery root surfaces"]
             T22["T22 session root composition"]
+            T25["T25 WebAPI and web interface pointed root"]
         end
     end
 
@@ -208,6 +217,10 @@ flowchart TD
     T11 --> T13
     T12 --> T13
     T14 --> T13
+    T11 --> T23
+    T12 --> T23
+    T9 --> T24
+    T23 --> T24
     T3 --> T18
     T17 --> T18
     T16 --> T19
@@ -220,9 +233,12 @@ flowchart TD
     T16 --> T22
     T17 --> T22
     T18 --> T22
+    T23 --> T22
     T12 --> T20
     T14 --> T20
     T22 --> T20
+    T22 --> T25
+    T24 --> T25
 
     linkStyle default stroke:#8a8a8a,stroke-width:2px
     style repo fill:none,stroke:#8a8a8a,stroke-width:2px
@@ -248,12 +264,15 @@ flowchart TD
 | T13 transfer list action | IF-7, IF-8 | T11, T12, T14 |
 | T14 unmatched list | IF-9, BT-2 | T11 |
 | T15 transaction and assignment surfaces | IF-2, IF-4, IF-5, IF-6, IF-14 | T8, T9, T10 |
+| T23 WebAPI discovery actions | IF-6, IF-11, IF-17, IF-18, BT-10 | T11, T12 |
+| T24 web interface action and unmatched list | IF-19, BT-10 | T9, T23 |
 | T16 discovery root storage | EN-1, ST-5, ST-6, ST-7, BT-1, BT-3, BT-5 | — |
-| T17 enumeration | EN-2, EN-3, EN-4, EN-5, PS-12, BT-6 | — |
+| T17 enumeration | EN-2, EN-3, EN-4, EN-5, EN-8, PS-12, BT-6 | — |
 | T18 candidateRoots extension | CR-8, BT-5 | T3, T17 |
 | T19 discovery root list | IF-3, BT-2 | T15, T16 |
 | T20 pointed root | EN-7, ST-8, IF-10 | T12, T14, T22 |
 | T21 discovery root surfaces | IF-4, IF-5, IF-6, IF-16 | T15, T16 |
-| T22 session root composition | CR-3, CR-10, EN-2, EN-6, EN-7, IF-15 | T5, T12, T13, T16, T17, T18 |
+| T22 session root composition | CR-3, CR-10, EN-2, EN-6, EN-7, IF-15 | T5, T12, T13, T16, T17, T18, T23 |
+| T25 WebAPI and web interface pointed root | IF-6, IF-10, IF-20, ST-8 | T22, T24 |
 
 RL-5, IF-12, CN-5, BT-7 and BT-9 hold across every ticket rather than belonging to one.

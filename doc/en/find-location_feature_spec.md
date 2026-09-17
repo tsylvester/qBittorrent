@@ -18,7 +18,7 @@ Repairing this by hand means noticing each redownload, stopping the torrent, set
 * Locate content for an existing stopped torrent before a Start request can create, allocate or download payload files at the configured destination.
 * Resolve the location before the torrent requests pieces from peers.
 * Recover partially downloaded content, including content the previous client left incomplete.
-* Provide a manual trigger for torrents that are already in the session, singly and in bulk.
+* Provide a manual trigger for torrents that are already in the session, singly and in bulk, from every interface the application presents.
 * Search directories the user points at, whether configured in advance or chosen for a single operation.
 * Return an assigned torrent to service without further user action, seeding what is complete and downloading what is not.
 
@@ -35,7 +35,7 @@ Repairing this by hand means noticing each redownload, stopping the torrent, set
 * **Location**, or **save path** — the directory a torrent's content is stored under.
 * **Own paths** — the torrent's configured save path and, where one is set, its download path.
 * **Candidate root** — a directory discovery searches for a torrent's content that is not one of the torrent's own paths, whatever its origin.
-* **Root form**, **name form**, **source form** — the candidates a search root contributes, named in *Candidate roots* below. A probed root contributes all three; an enumerated root contributes the root form and the source form.
+* **Root form**, **name form**, **source form** — the candidates a search root contributes, named in *Candidate roots* below. A probed root contributes all three; an enumerated root contributes the root form, and reaches the directories named for the torrent and its `.torrent` file through its listing.
 * **Discovery root** — a directory the user configures for searching, held with its own options.
 * **Pointed root** — a directory the user chooses for one operation.
 * **Probe** — a count of how many of the files a torrent describes are present beneath a location, whether one of the torrent's own paths or a candidate root.
@@ -76,13 +76,17 @@ A root on storage that is not present when discovery runs contributes nothing an
 
 ### Enumerated roots
 
-A discovery root carries a recursion flag, as a watched folder does.
+A discovery root carries a recursion flag, as a watched folder does, and recursion reaches the whole tree beneath the root, as it does for a watched folder.
 
-A root marked recursive has its immediate subdirectories listed once, and a torrent is matched against that listing by name. A user pointing at a directory that holds their library gets every directory beneath it searched, at the cost of one listing rather than one probe per subdirectory.
+A root marked recursive has every directory beneath it listed once, at any depth, and a torrent is matched against that listing by name. A volume organised by determinants of its own, such as `volume/someDeterminant/someOtherDeterminant/contentFolder/content`, is searched to whatever depth its content sits at, at the cost of one walk of the tree rather than one probe per directory.
 
-The listing does the work of the name form, so an enumerated root contributes the root form and the source form alone. The directory named for the torrent is reached through the listing instead of being probed for.
+The walk passes over hidden directories, and does not follow a symbolic link or a junction, so a link pointing back up the tree cannot trap it. A branch that cannot be read contributes nothing, and the rest of the tree is listed as it would have been.
 
-Names are matched against the listing by the same case rule the platform applies to paths, so a listing resolves whatever probing that root directly would have resolved.
+A name can occur more than once in a tree, since folders such as `Disc 1` or `Season 1` repeat beneath different parents. Every directory holding the name is kept, in path order, and the probe count decides between them.
+
+A directory found by name contributes two candidates: its parent, then the directory itself. The parent is where a torrent carrying its own root folder is found, since the paths it declares begin with that folder; the directory itself is where a single-file torrent, or content nested inside a folder of the torrent's name, is found. The listing is consulted for the torrent's name, then for the source name, so an enumerated root contributes the root form followed by the candidates its listing yields. The directories named for the torrent and for its `.torrent` file are reached through the listing instead of being probed for.
+
+Names are matched against the listing by the same case rule the platform applies to paths, so a listing resolves whatever probing the directories it holds would have resolved.
 
 The listing is built for the operation that needs it and discarded when that operation ends. One listing is shared by every torrent in a selection, in a **Search folder...** action, and in automatic additions arriving while an add operation is in flight.
 
@@ -136,11 +140,17 @@ A **Find location** action sits directly after **Set location...** in the transf
 
 Where discovery finds no match, the **Set location** file dialog opens, so the user targets the location by hand.
 
+The web interface carries the same action directly after **Set location...** in its transfer list context menu, shown while the selection holds a torrent with metadata and the **Find location** group is enabled. It runs discovery and assigns each match as the desktop action does. Where discovery finds no match, the web interface's **Set location** window opens for that torrent, and the location entered there is assigned as a found location is.
+
+The WebAPI carries the action as a request, so a client of the headless daemon runs discovery for a set of torrents without either interface. Each match is assigned as its outcome arrives, whether or not the client waits for the rest. The client repeats the request to learn the outcome: the answer reports the operation pending while any torrent in it is still being searched, and reports which torrents were assigned a location and which matched nothing once none is. A separate request assigns a location the client names, on the same terms as a found location.
+
 ### Batch
 
 Over a multiple selection, **Find location** runs discovery for every selected torrent. Torrents that match are assigned their locations. Invoking the action again while an operation is active adds only torrents that are not already part of it.
 
 Torrents that match nothing are collected and presented as a list, from which the user abandons the operation or steps through the entries setting each location. This reduces the number of dialogs a batch import requires.
+
+The web interface presents its batch the same way: several torrents matching nothing open a window listing them, in which the user enters a location for each entry in turn or closes the window to abandon the rest. A torrent removed while the window is open leaves the list, and the window closes once no entry remains. Invoking the action again while a web interface or WebAPI operation is active adds only torrents that are not already part of it.
 
 ### Pointed
 
@@ -150,9 +160,11 @@ The action is repeatable while the list holds entries. A library split across se
 
 This is the answer for a user who knows where their content is and has not configured the application to look there.
 
+The web interface list of torrents that matched nothing offers the same action, **Search folder...**, searching the directory entered in its path field for every listed torrent as one operation. Torrents that match are assigned and leave the list, the rest stay, and the action is repeatable while entries remain. A WebAPI request running **Find location** accepts a directory to search, which becomes the pointed root of the operation that request starts, so a client of the headless daemon points at a directory without either interface. In every interface the directory applies to that operation alone and is written nowhere.
+
 ### Assignment
 
-Assigning a location from the manual, batch or pointed modes, whether from a match or from the file dialog, follows **Set location...**, rechecks the torrent while **Recheck automatically** is enabled, and returns it to service as **Seed automatically** and **Leech automatically** allow. The recheck establishes which pieces the content holds. An incomplete torrent with a separate download path keeps its content in that download path, as **Set location...** leaves it, and is not rechecked. Assigning a torrent the location it is already being assigned is merged into that assignment.
+Assigning a location from the manual, batch or pointed modes, whether from a match, from the file dialog or from a location entered in the web interface or named through the WebAPI, follows **Set location...**, rechecks the torrent while **Recheck automatically** is enabled, and returns it to service as **Seed automatically** and **Leech automatically** allow. The recheck establishes which pieces the content holds. An incomplete torrent with a separate download path keeps its content in that download path, as **Set location...** leaves it, and is not rechecked. Assigning a torrent the location it is already being assigned is merged into that assignment.
 
 A torrent started this way is auto-managed, so the session's queueing limits govern how many of a recovered library run at once, exactly as they govern any other torrent.
 
@@ -224,23 +236,26 @@ The first iteration is behaviour rather than interface, and serves the GUI, the 
 * The **Find location when starting stopped torrents** preference, with its place in the options dialog group and the corresponding WebAPI key and web interface control.
 * The **Find location** context menu action, over single and multiple selections.
 * The dialog listing torrents that matched nothing.
+* The WebAPI requests running discovery for a set of torrents and assigning a named location.
+* The **Find location** action in the web interface's transfer list context menu, and the web interface window listing torrents that matched nothing.
 * Recheck and start on assignment, with the **Recheck automatically**, **Seed automatically** and **Leech automatically** preferences, their places in the options dialog group, and the corresponding WebAPI keys and web interface controls.
 
-The manual and batch surfaces are confined to the GUI. Start-triggered discovery is session behaviour shared by the GUI, headless daemon and WebUI, and builds on the discovery delivered by the first iteration. The second iteration closes issue [#8261](https://github.com/qbittorrent/qBittorrent/issues/8261).
+The manual and batch modes are offered by the desktop interface, the web interface and the WebAPI alike. Start-triggered discovery is session behaviour shared by the GUI, headless daemon and WebUI, and builds on the discovery delivered by the first iteration. The second iteration closes issue [#8261](https://github.com/qbittorrent/qBittorrent/issues/8261).
 
 ### Third iteration — discovery roots
 
 * Discovery roots, their per-root options, and their place in the candidate root order.
 * Enumeration of recursive roots, with one listing shared by every torrent of an operation.
 * Batch operations over several torrents, sharing one listing per root.
-* The pointed root offered from the list of torrents that matched nothing.
+* The pointed root offered from the list of torrents that matched nothing, in the desktop interface and in the web interface, and accepted by the WebAPI **Find location** request.
 * The discovery root list in the options dialog group, its per-root dialog, and the corresponding WebAPI key and web interface control.
+
+Every mode the third iteration adds or extends is offered by the desktop interface, the web interface and the WebAPI alike.
 
 The third iteration removes the requirement that content sit under a path the application already knows.
 
 ### Out of scope
 
-* A WebUI interface for the manual, batch and pointed modes.
 * Fuzzy or heuristic name matching.
 * Discovery options attached to individual watched folder entries. Watched folders contribute their save paths to the search and carry no settings of their own for this feature; directories the user wants searched on their own terms are configured as discovery roots.
 * Repairing the application's pre-existing force-recheck failure. Find Location handles any recheck failure defensively by cancelling its pending Start, but the underlying recheck defect remains separate work.

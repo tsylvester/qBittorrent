@@ -6,7 +6,7 @@ The systems this feature touches, and the shape of the repository after each sub
 
 | System | Location | Role |
 | --- | --- | --- |
-| Search | `src/base/bittorrent/filesearcher.*` | Probes directories for a torrent's files, scores the torrent's own paths together with the candidates, constructs the candidate list from the inputs its callers supply, and lists a root's subdirectories for enumeration |
+| Search | `src/base/bittorrent/filesearcher.*` | Probes directories for a torrent's files, scores the torrent's own paths together with the candidates, constructs the candidate list from the inputs its callers supply, and walks every directory beneath a root for enumeration |
 | Session implementation | `src/base/bittorrent/sessionimpl.*` | Holds the watched folder save paths pushed to it, composes searches, marshals searching onto the I/O thread, performs manual assignment, holds pending Start state in `m_locationAssignments`, and runs batch search operations |
 | Session interface | `src/base/bittorrent/session.h` | The abstraction `src/gui`, `src/webui` and `TorrentFilesWatcher` hold, gaining `setWatchedFolderSavePaths()`, `findTorrentLocation()`, `assignTorrentLocation()`, `torrentLocationFound` and `findTorrentLocations()` |
 | Torrent | `src/base/bittorrent/torrentimpl.*` | Resolves a manual-mode torrent's location when metadata arrives, clearing its download path when content is adopted, and adds one conditional Start delegation and the private `stop(bool)` overload while retaining the existing Start, Stop, metadata and recheck implementations |
@@ -16,9 +16,9 @@ The systems this feature touches, and the shape of the repository after each sub
 | Logging | `src/base/logger.h` | Records discovery outcomes and Start transaction outcomes, written from `SessionImpl` |
 | Application | `src/app/application.cpp` | Creates the discovery root singleton before the session and frees it after |
 | Desktop interface | `src/gui/` | `optionsdialog`, `transferlistwidget`, `unmatchedtorrentsdialog`, `discoveryrootsmodel` and `discoveryrootoptionsdialog` |
-| WebAPI | `src/webui/api/appcontroller.cpp` | Exposes the settings on `app/preferences` and `app/setPreferences` |
-| Web interface | `src/webui/www/private/views/preferences.html` | Presents the settings to a WebUI user |
-| Build | `src/base/CMakeLists.txt`, `src/gui/CMakeLists.txt`, `test/CMakeLists.txt` | Registers every new source file |
+| WebAPI | `src/webui/api/appcontroller.cpp`, `src/webui/api/torrentscontroller.*`, `src/webui/webapplication.h` | Exposes the settings on `app/preferences` and `app/setPreferences`, and runs discovery and assignment for a web session through `torrents/findLocation` and `torrents/assignLocation` |
+| Web interface | `src/webui/www/private/views/preferences.html`, `src/webui/www/private/index.html`, `src/webui/www/private/views/transferlist.html`, `src/webui/www/private/scripts/contextmenu.js`, `src/webui/www/private/scripts/mocha-init.js`, `src/webui/www/private/setlocation.html`, `src/webui/www/private/unmatchedtorrents.html` | Presents the settings, the **Find location** context menu action and the list of torrents that matched nothing to a WebUI user |
+| Build | `src/base/CMakeLists.txt`, `src/gui/CMakeLists.txt`, `test/CMakeLists.txt`, `src/webui/www/webui.qrc` | Registers every new source file and web interface page |
 | Tests | `test/`, `test/testdata/` | Covers the pure functions, the probe and the enumeration; existing-torrent lifecycle behaviour is covered at the Epic 2 integration boundary without a new test-only session architecture |
 
 ## Baseline
@@ -37,7 +37,9 @@ flowchart TD
         end
         subgraph web["src/webui"]
             AC["AppController"]
+            TC["TorrentsController"]
             PH["preferences.html"]
+            WTL["web transfer list"]
         end
         subgraph base["src/base"]
             TFW["TorrentFilesWatcher"]
@@ -60,7 +62,9 @@ flowchart TD
     TLW --> SESS
     OD --> SESS
     AC --> SESS
+    TC --> SESS
     PH --> AC
+    WTL --> TC
     SI --> FIF
     TI --> FIF
     FIF --> FS
@@ -149,9 +153,9 @@ flowchart TD
 
 ## Epic 2 — Start-triggered, manual, batch and assignment
 
-**Added.** `Session::findTorrentLocation()`, `Session::assignTorrentLocation()` and the `torrentLocationFound` signal. Four boolean settings, including **Find location when starting stopped torrents**. `SessionImpl::searchExistingContent()`, the composition every call site reaches. `m_locationAssignments`, holding the state needed to hold, advance and release a pending Start through the session callbacks that already exist. The `interceptFindLocationStart()` and `cancelFindLocationStart()` hooks and the private `TorrentImpl::stop(bool)` overload. The transfer list action and the dialog listing torrents that matched nothing.
+**Added.** `Session::findTorrentLocation()`, `Session::assignTorrentLocation()` and the `torrentLocationFound` signal. Four boolean settings, including **Find location when starting stopped torrents**. `SessionImpl::searchExistingContent()`, the composition every call site reaches. `m_locationAssignments`, holding the state needed to hold, advance and release a pending Start through the session callbacks that already exist. The `interceptFindLocationStart()` and `cancelFindLocationStart()` hooks and the private `TorrentImpl::stop(bool)` overload. The transfer list action and the dialog listing torrents that matched nothing. The `torrents/findLocation` and `torrents/assignLocation` WebAPI actions, with the per-web-session operation map behind the first. The web interface **Find location** action and the `unmatchedtorrents.html` window listing torrents that matched nothing.
 
-**Changed.** `TorrentImpl::start()` gains one early conditional call into `SessionImpl`, after its existing error-clearing preamble but before the missing-files reload or any resume. The ordinary Start body stays in place. Public `stop()` calls `stop(true)`, and the stop-after-check call uses `stop(false)`. Existing session callbacks gain guarded lookups into the feature state. `findExistingContent()` delegates its enabled branch to `searchExistingContent()`. The options dialog group and the WebAPI gain the four settings, and the WebUI preferences page gains their controls.
+**Changed.** `TorrentImpl::start()` gains one early conditional call into `SessionImpl`, after its existing error-clearing preamble but before the missing-files reload or any resume. The ordinary Start body stays in place. Public `stop()` calls `stop(true)`, and the stop-after-check call uses `stop(false)`. Existing session callbacks gain guarded lookups into the feature state. `findExistingContent()` delegates its enabled branch to `searchExistingContent()`. The options dialog group and the WebAPI gain the four settings, and the WebUI preferences page gains their controls. `TorrentsController` connects to `torrentLocationFound`, and `WebApplication::m_allowedMethod` registers its two actions as POST-only. The web interface context menu gains **Find location**, and `setlocation.html` assigns through `torrents/assignLocation` when opened for a torrent that matched nothing.
 
 **Unchanged.** The behaviour Epic 1 built below the session interface. The normal Start path, move-storage queue, metadata pipeline, force-recheck implementation, libtorrent alert routing, and unrelated check and error handling retain their current behaviour. When either Find Location gate is disabled, the new Start condition is false and execution follows the existing body unchanged.
 
@@ -167,6 +171,12 @@ flowchart TD
         subgraph web["src/webui"]
             AC["AppController"]
             PH["preferences.html"]
+            TC["TorrentsController"]
+            WFA["findLocation and assignLocation actions"]
+            WTL["web transfer list"]
+            WFL["web Find location action"]
+            WUL["unmatchedtorrents.html"]
+            SLP["setlocation.html"]
         end
         subgraph base["src/base"]
             LOG["Logger"]
@@ -222,11 +232,21 @@ flowchart TD
     ODG --> SESS
     AC --> SESS
     PH --> AC
+    TC --- WFA
+    WFA --> SESS
+    WTL --> WFL
+    WFL --> WFA
+    WFL --> SLP
+    WFL --> WUL
+    SLP --> WFA
+    WUL --> WFA
 
     linkStyle default stroke:#8a8a8a,stroke-width:2px
     style repo fill:none,stroke:#8a8a8a,stroke-width:2px
     classDef added stroke:#3b82f6,stroke-width:3px
-    class FLA,UML,SDV,GUARD,TX,RELEASE,SEC added
+    class FLA,UML,SDV,GUARD,TX,RELEASE,SEC,WFA,WFL,WUL added
+    classDef changed stroke:#f59e0b,stroke-width:3px
+    class TC,SLP changed
 ```
 
 ### Minimal ownership and existing event hooks
@@ -251,9 +271,9 @@ The hold remains in force until a successful miss or successful completion of th
 
 ## Epic 3 — discovery roots
 
-**Added.** Discovery root storage with per-root options, persisted to `discovery_roots.json` as a JSON array of objects carrying `path` and `recursive`. Enumeration producing a name-to-path map. `Session::findTorrentLocations()`, a batch operation taking torrent IDs and an optional pointed root. `SessionImpl::SearchOperation`, sharing one operation's roots and maps across its searches. The discovery root list in the options dialog, its model and its per-root dialog. The pointed root action on the unmatched list. The singleton's lifecycle in `Application`. The `testdiscoveryroots` and `testbittorrentsubdirectories` test executables.
+**Added.** Discovery root storage with per-root options, persisted to `discovery_roots.json` as a JSON array of objects carrying `path` and `recursive`. Enumeration walking every directory beneath a root, at any depth and without following links or junctions, into a map from name to every directory bearing it. `Session::findTorrentLocations()`, a batch operation taking torrent IDs and an optional pointed root. `SessionImpl::SearchOperation`, sharing one operation's roots and maps across its searches. The discovery root list in the options dialog, its model and its per-root dialog. The pointed root action on the unmatched list, in the desktop interface and in `unmatchedtorrents.html`, and the `root` parameter of `torrents/findLocation`. The singleton's lifecycle in `Application`. The `testdiscoveryroots` and `testbittorrentsubdirectories` test executables.
 
-**Changed.** Session root composition places the pointed root first, then the discovery roots in configured order, then the watched folder save paths; it lists the pointed root and every recursive discovery root once per operation, and an automatic addition reuses an unchanged add operation still in flight. The log names the exact root whose candidates contain the winning location. `candidateRoots()` takes the enumerated maps. `findTorrentLocation()` runs as a one-torrent batch, and the transfer list submits each invocation through one `findTorrentLocations()` call. The WebAPI and the WebUI preferences page gain the root list.
+**Changed.** Session root composition places the pointed root first, then the discovery roots in configured order, then the watched folder save paths; it lists the pointed root and every recursive discovery root once per operation, and an automatic addition reuses an unchanged add operation still in flight. The log names the exact root whose candidates contain the winning location. `candidateRoots()` takes the enumerated maps, and each directory a map holds under the torrent's name or source name contributes its parent then itself. `findTorrentLocation()` runs as a one-torrent batch, and the transfer list and `torrents/findLocation` each submit an invocation's new torrents through one `findTorrentLocations()` call. The WebAPI and the WebUI preferences page gain the root list.
 
 **Unchanged.** The probing, scoring and resolution built in Epic 1.
 
@@ -274,6 +294,9 @@ flowchart TD
         subgraph web["src/webui"]
             AC["AppController"]
             PH["preferences.html"]
+            TC["TorrentsController"]
+            WUL["unmatchedtorrents.html"]
+            WPR["web Search folder action"]
         end
         subgraph base["src/base"]
             DRS["DiscoveryRoots storage"]
@@ -283,7 +306,7 @@ flowchart TD
             SESS["Session interface"]
             BATCH["findTorrentLocations"]
             COMP["Session root composition"]
-            ENUM["Enumeration, name to path map"]
+            ENUM["Enumeration, whole tree, name to paths map"]
             CR["candidateRoots"]
             FSN["FileSearcher::searchRoots"]
         end
@@ -303,15 +326,18 @@ flowchart TD
     TLW --> SESS
     UML --> PRA
     PRA --> SESS
+    WUL --> WPR
+    WPR --> TC
     AC --> DRS
     PH --> AC
+    TC --> SESS
 
     linkStyle default stroke:#8a8a8a,stroke-width:2px
     style repo fill:none,stroke:#8a8a8a,stroke-width:2px
     classDef added stroke:#3b82f6,stroke-width:3px
-    class DRS,ENUM,DRL,DRD,PRA,BATCH added
+    class DRS,ENUM,DRL,DRD,PRA,BATCH,WPR added
     classDef changed stroke:#f59e0b,stroke-width:3px
-    class TLW,COMP,CR changed
+    class TLW,TC,COMP,CR changed
 ```
 
 ## Requirements trace
@@ -333,7 +359,8 @@ Specification behaviour against the architecture that carries it.
 | Record what discovery chose | `findExistingContent` and `searchExistingContent` continuations through `Logger::addMessage` | 1 |
 | Settings reachable from the WebUI | `AppController`, `preferences.html` | 1, 2, 3 |
 | Manual trigger, single and batch | `Session::findTorrentLocation`, transfer list action | 2 |
-| Torrents matching nothing are listed | Unmatched torrent list | 2 |
+| Manual trigger from the web interface and the WebAPI | `torrents/findLocation`, `torrents/assignLocation`, web interface **Find location** action | 2 |
+| Torrents matching nothing are listed | Unmatched torrent list, `unmatchedtorrents.html` | 2 |
 | Start is intercepted before allocation or payload transfer | One conditional in `TorrentImpl::start`, `m_locationAssignments` in `SessionImpl` | 2 |
 | Start waits asynchronously for metadata and discovery | Existing metadata callback, search continuation, `m_locationAssignments` | 2 |
 | A matching location is assigned and successfully rechecked before Start | Movement hook, `forceRecheck`, checked hook | 2 |
@@ -347,11 +374,14 @@ Specification behaviour against the architecture that carries it.
 | Explicit Start preserves its requested operating mode; automatic assignment respects the queue | One-shot Start pass; existing `Torrent::start` behaviour | 2 |
 | Search directories the user configures | Discovery root storage, session root composition ordering | 3 |
 | Recursive roots listed once and matched by name | Enumeration, per-operation `SearchOperation` sharing | 3 |
+| Content folders found at any depth of a structured volume | Whole-tree enumeration, parent and directory candidates in `candidateRoots` | 3 |
+| A name repeated in a tree searches every occurrence | Map holding every directory per name, selection by count in `FileSearcher::searchRoots` | 3 |
 | Each operation lists a root once | `findTorrentLocations`, `SearchOperation`, in-flight add operation reuse | 3 |
-| Point the unmatched list at a directory | Pointed root action | 3 |
+| Point the unmatched list at a directory | Pointed root action, web **Search folder...** action | 3 |
+| Point a WebAPI request at a directory | `root` on `torrents/findLocation` | 3 |
 | A pointed root outranks every other search root | Session root composition | 3 |
-| Repeatable across several disks | Pointed root action against the shrinking list | 3 |
+| Repeatable across several disks | Pointed root action and web **Search folder...** action against the shrinking list | 3 |
 
 ## Build registration
 
-Every new source file is registered where the repository already lists them: `src/base/CMakeLists.txt` for `discoveryroots.h` and `discoveryroots.cpp`; `src/gui/CMakeLists.txt` for the `unmatchedtorrentsdialog`, `discoveryrootsmodel` and `discoveryrootoptionsdialog` sources and their `.ui` files; and `test/CMakeLists.txt` for the five test executables, `testbittorrentfilesearcher`, `testbittorrentfilesearchermultiroot`, `testbittorrentcandidateroots`, `testbittorrentsubdirectories` and `testdiscoveryroots`.
+Every new source file is registered where the repository already lists them: `src/base/CMakeLists.txt` for `discoveryroots.h` and `discoveryroots.cpp`; `src/gui/CMakeLists.txt` for the `unmatchedtorrentsdialog`, `discoveryrootsmodel` and `discoveryrootoptionsdialog` sources and their `.ui` files; `src/webui/www/webui.qrc` for `unmatchedtorrents.html`; `src/webui/webapplication.h` for the POST-only `torrents/findLocation` and `torrents/assignLocation` actions; and `test/CMakeLists.txt` for the five test executables, `testbittorrentfilesearcher`, `testbittorrentfilesearchermultiroot`, `testbittorrentcandidateroots`, `testbittorrentsubdirectories` and `testdiscoveryroots`.

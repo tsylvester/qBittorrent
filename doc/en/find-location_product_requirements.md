@@ -34,9 +34,11 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 * As a user who changes my mind while a Start request is waiting on Find Location, I can stop the torrent and cancel the pending Start.
 * As a user who wants placement under my own control, I turn the feature off in one action and nothing about torrent add or Start changes.
 * As a user repairing a handful of torrents, I select them, ask for their locations to be found, and deal by hand only with the ones that were not.
+* As a user of the web interface or the headless daemon, I ask for existing torrents' locations to be found from the web interface or through the WebAPI, on the same terms as a user of the desktop application.
 * As a migrator whose library sits in one place, I point at that directory once and every torrent beneath it is linked up, without configuring a watched folder I have no other use for.
+* As a migrator whose volume is organised into folders of my own, such as by category and then by artist or year, I point at the top of the volume and torrents are found however deep their content folders sit.
 * As a migrator whose library is split across several disks, I configure each as a place to look, or point at them one after another and watch the unresolved list shrink.
-* As a user looking at torrents that matched nothing, I point at the directory I know holds them and have them resolved without leaving the list.
+* As a user looking at torrents that matched nothing, in the desktop interface or the web interface, I point at the directory I know holds them and have them resolved without leaving the list.
 
 ## Goals
 
@@ -84,23 +86,24 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 * A torrent matching nothing is placed at its configured destination and behaves as it does without the feature.
 * The feature is disabled in one action, returning torrent add and Start to their prior behaviour.
 * Every setting is reachable from each interface the application presents, so a user running the headless daemon configures the feature as fully as a user running the desktop application.
+* Every way of running the feature on demand, whether for one torrent, over a selection, or against a directory the user points at, is reachable from the desktop interface, the web interface and the WebAPI alike, so no way of using the application is excluded from the feature.
 * Discovery records a location found outside the torrent's own paths, naming the folder it came from and how many files were found, and records a torrent whose searched locations held none of its files. It records nothing when the torrent's own save path or download path is selected, so an ordinary add logs as it does without the feature. A Start transaction records whether it continued after a match, continued after a miss, was cancelled, or failed, so unexpected placement and activity can be accounted for after the fact.
 
 ### Should
 
-* A **Find location** action runs discovery on demand for torrents already in the session, singly and over a selection.
+* A **Find location** action runs discovery on demand for torrents already in the session, singly and over a selection, from the desktop interface, from the web interface, and through the WebAPI.
 * An assignment made without a pending Start rechecks the torrent while **Recheck automatically** is enabled and returns it to service as the automatic seeding and downloading preferences allow.
 * An assignment made from the **Find location** action follows **Set location...**: an incomplete torrent with a separate download path keeps its content in that download path.
-* Torrents matching nothing in a batch are listed, and the user walks them or abandons the operation.
+* Torrents matching nothing in a batch are listed, in the desktop interface and in the web interface, and the user walks them or abandons the operation.
 * Seeding and downloading are separately controllable, so a user on constrained upstream recovers a library without joining swarms as a seed.
 * Torrents started after assignment are auto-managed, so the session's queueing limits govern how many of a recovered library run at once.
 * Directories the user configures are searched alongside the watched folder save paths, ahead of them, and without requiring a watched folder to exist.
-* A directory searched recursively is listed once per operation and matched by name, the listing shared by every torrent in a selection, in a **Search folder...** action, or in a burst of automatic additions, so pointing at a library costs one listing rather than one probe per subdirectory.
-* The list of torrents that matched nothing accepts a directory to search, resolving them without leaving the list, and accepts another while entries remain, so a library across several disks is covered a disk at a time.
+* A directory searched recursively has every directory beneath it, at any depth, listed once per operation and matched by name, the listing shared by every torrent in a selection, in a **Search folder...** action, or in a burst of automatic additions, so pointing at a structured volume costs one walk of its tree rather than one probe per directory.
+* Where a name occurs at several places in a recursively searched tree, each is searched and the one holding the most of the torrent's files is selected.
+* The list of torrents that matched nothing accepts a directory to search, in the desktop interface and in the web interface, resolving them without leaving the list, and accepts another while entries remain, so a library across several disks is covered a disk at a time. A WebAPI request for **Find location** accepts a directory to search on the same terms.
 
 ### Could
 
-* A WebUI interface for the manual, batch and pointed modes.
 * An enumerated listing retained across a session rather than rebuilt per operation.
 
 ### Will not
@@ -115,7 +118,7 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 * The user knows where their content is, and can either point the application at it or has it under a path the application already knows.
 * The content on disk carries the names the torrent declares, allowing for qBittorrent's own incomplete-file suffix.
 * The application's checking facilities can verify content at a selected location without first starting payload transfer. Start-time discovery does not rely on existing resume data to establish the pieces held at a matched location; the transaction requires a successful recheck.
-* A user's library is reachable by directory rather than scattered arbitrarily, so a small number of pointed roots covers it.
+* A user's library is reachable by directory rather than scattered arbitrarily, so a small number of pointed roots covers it, at whatever depth the user's own folder structure places each content folder.
 
 ## Dependencies
 
@@ -133,10 +136,10 @@ A client receiving those files has no basis for placing a torrent anywhere but t
 * Intercepting Start adds search and, on a match elsewhere, recheck latency before the torrent can transfer. Both run asynchronously, and the safety guarantee takes priority over an immediate start.
 * Storage can disappear or become unreadable after it is found. A transaction therefore treats assignment, movement and checking as fallible and fails stopped rather than falling through to download.
 * A batch recheck across a large library is disk-intensive for its duration, bounded by the session's checking limit rather than by the feature.
-* A discovery root pointed at a very large directory costs a listing proportional to its subdirectory count. The listing is taken once per operation, so the cost does not scale with the number of torrents.
+* A discovery root pointed at a very large directory costs a walk proportional to the number of directories in its tree. The walk is taken once per operation, so the cost does not scale with the number of torrents.
 
 ## Release
 
-The work ships as three submissions. The first delivers discovery at add and at metadata received, with its two settings, the feature group and **Find location automatically**, their WebAPI keys and their controls, and serves the GUI, the headless daemon and the WebUI alike. The second delivers Start-triggered discovery for eligible stopped torrents, the manual and batch modes, transactional assignment and recheck, and their settings, and closes issue [#8261](https://github.com/qbittorrent/qBittorrent/issues/8261). The third delivers discovery roots, enumeration and the pointed root, removing the requirement that content sit under a path the application already knows.
+The work ships as three submissions. The first delivers discovery at add and at metadata received, with its two settings, the feature group and **Find location automatically**, their WebAPI keys and their controls, and serves the GUI, the headless daemon and the WebUI alike. The second delivers Start-triggered discovery for eligible stopped torrents, the manual and batch modes in the desktop interface, the web interface and the WebAPI, transactional assignment and recheck, and their settings, and closes issue [#8261](https://github.com/qbittorrent/qBittorrent/issues/8261). The third delivers discovery roots, enumeration and the pointed root in the desktop interface, the web interface and the WebAPI, removing the requirement that content sit under a path the application already knows.
 
 Each submission stands alone and depends only on those before it. The third carries the largest GUI surface, a list with a per-root dialog, which is why it is separated rather than folded into the first.
