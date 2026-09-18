@@ -1058,10 +1058,10 @@ Each node addresses one source file and the support that file requires. Ticket i
         *   `[X]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the keys and actions it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
         *   `[X]` The file passes the `rumdl` pre-commit hook.
 
-*   `[ ]` **Commit** `Find location before starting existing torrents`
-    *   `[ ]` Structural: `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, the eight Epic 2 setting accessors and `torrentLocationFound`; `TorrentImpl::stop(bool)` plus the single `interceptFindLocationStart()` call; `SessionImpl::searchExistingContent()`, the five named transaction helpers and `m_locationAssignments`; `UnmatchedTorrentsDialog`; `m_findLocationOperation` and the transfer-list action; `TorrentsController::findLocationAction()`, `TorrentsController::assignLocationAction()` and the controller's `m_findLocationOperation`; the web interface **Find location** action, `unmatchedtorrents.html` and the assigning mode of `setlocation.html`; four new checkboxes in each preferences interface.
-    *   `[ ]` Behavioural: the manual action retains its exact discovery, assignment and fallback flow, and the web interface and the WebAPI run the same discovery, assignment and fallback for a web session's operation, answering HTTP 202 until no torrent is pending; additionally, an eligible explicit Start is held, searched, assigned when needed, rechecked after the actual location settles, and released in its saved normal or forced mode only after a successful match check, while a successful miss releases the unchanged Start workflow immediately.
-    *   `[ ]` Contract: `findExistingContent()` keeps its signature and add-time behavior; public `Torrent::start()` and `Torrent::stop()` signatures, `forceRecheck()`, the location setters and the storage move queue are unchanged; when either Start gate is disabled or the torrent is ineligible, the original Start body runs unchanged; `app/preferences` and `app/setPreferences` gain four keys, and `torrents/findLocation` and `torrents/assignLocation` are added, all recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged; `torrents/setLocation` and **Set location...** in the web interface are unchanged.
+*   `[X]` **Commit** `Find location before starting existing torrents`
+    *   `[X]` Structural: `Session::findTorrentLocation()`, `Session::assignTorrentLocation()`, the eight Epic 2 setting accessors and `torrentLocationFound`; `TorrentImpl::stop(bool)` plus the single `interceptFindLocationStart()` call; `SessionImpl::searchExistingContent()`, the five named transaction helpers and `m_locationAssignments`; `UnmatchedTorrentsDialog`; `m_findLocationOperation` and the transfer-list action; `TorrentsController::findLocationAction()`, `TorrentsController::assignLocationAction()` and the controller's `m_findLocationOperation`; the web interface **Find location** action, `unmatchedtorrents.html` and the assigning mode of `setlocation.html`; four new checkboxes in each preferences interface.
+    *   `[X]` Behavioural: the manual action retains its exact discovery, assignment and fallback flow, and the web interface and the WebAPI run the same discovery, assignment and fallback for a web session's operation, answering HTTP 202 until no torrent is pending; additionally, an eligible explicit Start is held, searched, assigned when needed, rechecked after the actual location settles, and released in its saved normal or forced mode only after a successful match check, while a successful miss releases the unchanged Start workflow immediately.
+    *   `[X]` Contract: `findExistingContent()` keeps its signature and add-time behavior; public `Torrent::start()` and `Torrent::stop()` signatures, `forceRecheck()`, the location setters and the storage move queue are unchanged; when either Start gate is disabled or the torrent is ineligible, the original Start body runs unchanged; `app/preferences` and `app/setPreferences` gain four keys, and `torrents/findLocation` and `torrents/assignLocation` are added, all recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged; `torrents/setLocation` and **Set location...** in the web interface are unchanged.
     *   `[X]` **Integration scenario 1 — assignment movement and overlap:** assign one torrent already at the chosen location and one requiring a storage move; confirm each recheck begins only after it reports the chosen location. While another feature assignment is waiting for movement, use the existing **Set location...** action to choose a different destination; confirm the existing move queue reaches that destination and the feature clears its assignment state without issuing a recheck or start for the superseded target.
     *   `[X]` **Integration scenario 2 — movement failure:** make an assignment move fail; confirm the existing warning is logged, the torrent remains stopped at its prior location, and no feature recheck or start follows.
     *   `[X]` **Integration scenario 3 — check and start decisions:** with a complete torrent and an incomplete torrent, verify **Recheck automatically** off, then on; with it on, verify the complete torrent under each **Seed automatically** value and the incomplete torrent under each **Leech automatically** value. While an assignment waits for movement, complete a separately initiated check for that torrent and confirm it causes no feature start decision. Run a batch larger than both configured checking and active-torrent limits and confirm both limits hold.
@@ -1079,667 +1079,667 @@ Each node addresses one source file and the support that file requires. Ticket i
     *   `[X]` **Integration scenario 15 — cancellation and late callbacks (TX-7):** cancel once with public Stop in each of `WaitingForMetadata`, `Searching`, `WaitingForMove` and `WaitingForCheck`; remove another torrent in each phase; and begin session shutdown with searches outstanding. Confirm state is erased, Stop works even while the torrent already reports Stopped, Stop, removal and shutdown each emit one cancellation log per pending Start, and delayed search, movement and check callbacks perform no assignment, recheck or Start. Also confirm `TorrentImpl::handleTorrentChecked()` uses `stop(false)` and therefore does not cancel a successful feature check before the session callback releases it.
     *   `[X]` **Integration scenario 16 — failure cleanup and force-recheck boundary (TX-8):** independently provoke asynchronous search failure, an assignment that cannot make the selected path actual, storage-move failure, metadata resume-data failure and file I/O error during the feature check. Confirm each pending Start is erased before ordinary Stop, produces one `failed` log naming the exact phase and reason, never produces a continuation log, leaves no live `FilesChecked` stop condition, and can be retried by explicit Start without restarting qBittorrent. Then provoke the known force-recheck bug outside Find Location and confirm its existing behavior is unchanged.
     *   `[X]` **Integration scenario 17 — responsiveness and isolation:** run a search over slow or unavailable volumes while repeatedly opening menus and issuing Stop; confirm the GUI thread never blocks. While feature transactions are active, complete unrelated storage moves, checks and file-error alerts for torrents absent from `m_locationAssignments`; confirm those torrents retain their baseline behavior and produce no Find Location terminal log.
-    *   `[ ]` **Integration scenario 18 — WebAPI actions:** with **Find location** enabled, post `torrents/findLocation` naming a mixed set of torrents: two whose content sits under a watched folder save path, one without content anywhere, one without metadata and one unknown ID. Confirm the answer is HTTP 202 listing the three torrents with metadata as pending and omitting the others, and that each match is assigned as its result arrives, before polling, following **Recheck automatically**, **Seed automatically** and **Leech automatically**. While one remains pending, post again naming a pending torrent, a matched torrent and a new torrent; confirm only the new torrent is searched. Poll without `hashes` until HTTP 200, and confirm `matched` carries each assigned torrent with its location in the form `save_path` uses and `unmatched` carries the miss. Poll again and confirm HTTP 200 with empty lists and no search. Remove an unmatched torrent before the final answer and confirm it is omitted. Run the desktop **Find location** on a torrent while a web session operation searches it, and confirm it receives one assignment. Post `torrents/assignLocation` with an empty location, a missing directory and an existing directory; confirm HTTP 400, HTTP 409 with no directory created, and an assignment following the same rules as a found location. Disable the group and confirm `torrents/findLocation` answers HTTP 409 and searches nothing. Confirm both actions refuse GET.
-    *   `[ ]` **Integration scenario 19 — web interface action and list:** confirm **Find location** follows **Set location...** in the web interface transfer list context menu over a selection holding a torrent with metadata, and is absent for a selection of torrents without metadata and while the group is disabled, including after the group is disabled from the web interface preferences page. Run it over one torrent matching nothing and confirm the **Set location** window opens with its save path, that saving an existing directory assigns it through `torrents/assignLocation`, and that saving a missing one shows the error and creates nothing. Run it over several torrents matching nothing and confirm `unmatchedtorrents.html` lists them by name, assigns an entered location to the selected entry and removes it, closes when the last entry is assigned, and assigns nothing further after **Close** or Escape. Remove a listed torrent before opening the list and confirm it is not listed. Invoke **Find location** again while a first invocation is polling and confirm one set of windows opens for the combined operation. Disable the group from another client while an invocation is polling and confirm the web interface reports the refusal; interrupt the connection during a poll and confirm polling resumes and the windows open once it completes. Operate the list by keyboard alone, and confirm Enter on **Close** closes the window without assigning. Confirm **Set location...** still moves a torrent to a directory it creates, as before.
-    *   `[ ]` The body carries `Closes #8261.` Commit after all nineteen integration scenarios pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
+    *   `[X]` **Integration scenario 18 — WebAPI actions:** with **Find location** enabled, post `torrents/findLocation` naming a mixed set of torrents: two whose content sits under a watched folder save path, one without content anywhere, one without metadata and one unknown ID. Confirm the answer is HTTP 202 listing the three torrents with metadata as pending and omitting the others, and that each match is assigned as its result arrives, before polling, following **Recheck automatically**, **Seed automatically** and **Leech automatically**. While one remains pending, post again naming a pending torrent, a matched torrent and a new torrent; confirm only the new torrent is searched. Poll without `hashes` until HTTP 200, and confirm `matched` carries each assigned torrent with its location in the form `save_path` uses and `unmatched` carries the miss. Poll again and confirm HTTP 200 with empty lists and no search. Remove an unmatched torrent before the final answer and confirm it is omitted. Run the desktop **Find location** on a torrent while a web session operation searches it, and confirm it receives one assignment. Post `torrents/assignLocation` with an empty location, a missing directory and an existing directory; confirm HTTP 400, HTTP 409 with no directory created, and an assignment following the same rules as a found location. Disable the group and confirm `torrents/findLocation` answers HTTP 409 and searches nothing. Confirm both actions refuse GET.
+    *   `[X]` **Integration scenario 19 — web interface action and list:** confirm **Find location** follows **Set location...** in the web interface transfer list context menu over a selection holding a torrent with metadata, and is absent for a selection of torrents without metadata and while the group is disabled, including after the group is disabled from the web interface preferences page. Run it over one torrent matching nothing and confirm the **Set location** window opens with its save path, that saving an existing directory assigns it through `torrents/assignLocation`, and that saving a missing one shows the error and creates nothing. Run it over several torrents matching nothing and confirm `unmatchedtorrents.html` lists them by name, assigns an entered location to the selected entry and removes it, closes when the last entry is assigned, and assigns nothing further after **Close** or Escape. Remove a listed torrent before opening the list and confirm it is not listed. Invoke **Find location** again while a first invocation is polling and confirm one set of windows opens for the combined operation. Disable the group from another client while an invocation is polling and confirm the web interface reports the refusal; interrupt the connection during a poll and confirm polling resumes and the windows open once it completes. Operate the list by keyboard alone, and confirm Enter on **Close** closes the window without assigning. Confirm **Set location...** still moves a torrent to a directory it creates, as before.
+    *   `[X]` The body carries `Closes #8261.` Commit after all nineteen integration scenarios pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
 
 ## Epic 3 — discovery roots
 
-*   `[ ]` [BE] src/base/`discoveryroots` — add `DiscoveryRootOptions`, `DiscoveryRoot`, the `DiscoveryRoots` singleton holding an ordered list of roots, empty by default and persisted to `discovery_roots.json` as a JSON array holding one object per root, and the `parseDiscoveryRoots()` and `serializeDiscoveryRoots()` pair. T16
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the search reaches only paths the application already knows, so content held under a directory the user knows but has configured nowhere is never found.
-        *   `[ ]` Functional: hold an ordered list of discovery roots, each a directory with its own options, of which recursion is one, preserving the order the user configured.
-        *   `[ ]` Functional: persist the list across sessions as a JSON array of objects, each carrying `path` and `recursive`; load it at construction and write it when the list changes; start empty where no file exists.
-        *   `[ ]` Functional: convert between the list and its JSON form in one place, dropping an entry that is not an object, whose path is empty or relative, or whose path repeats an earlier entry.
-        *   `[ ]` Non-functional: the conversion reads no singleton and writes no log, so it is covered by a `qbt_base` test.
-
-    *   `[ ]` `role`
-        *   `[ ]` Settings storage in `src/base`, a singleton whose lifetime `Application` owns, read by `sessionimpl` and presented by `discoveryrootsmodel` and `appcontroller`.
-        *   `[ ]` Out of scope: enumerating a root, which is the `filesearcher` node; composing roots into a search, which is the `sessionimpl` node; checking that a directory exists or is readable, which the desktop model does before accepting an entry.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the root types, the ordered list, its JSON form, and its file. Outside: what the roots are searched for, and how they are edited.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/path.h` — `Path`, `Path::isEmpty()`, `Path::isRelative()`, `Path::data()` and `operator==`. A lower layer, depended on inward.
-        *   `[ ]` `base/profile.h` — `specialFolderLocation(SpecialFolder::Config)`.
-        *   `[ ]` `base/utils/io.h` — `Utils::IO::readFile()`, `Utils::IO::ReadError::NotExist` and `Utils::IO::saveToFile()`.
-        *   `[ ]` `base/logger.h` — `LogMsg()` and `Log::WARNING`, from `load()` and `store()` only.
-        *   `[ ]` `base/global.h` — the `_s` literal.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `TorrentFilesWatcher` is the model: `initInstance()`, `freeInstance()` and `instance()` over a static `m_instance`; a private constructor calling `load()`; `load()` reading `specialFolderLocation(SpecialFolder::Config) / Path(CONF_FILE_NAME)` through `Utils::IO::readFile()` with a 10 MiB limit and logging a warning on a read error other than `NotExist`, a parse error or a wrong document type; `store()` writing `QJsonDocument(...).toJson()` through `Utils::IO::saveToFile()` and logging a warning on failure; and the option key constant `OPTION_RECURSIVE`.
-        *   `[ ]` `TorrentFilesWatcher` keys its JSON object by folder path, which `QJsonObject` holds in sorted order; the discovery root list is ordered by the user, so it is held as a JSON array.
-
-    *   `[ ]` src/base/`discoveryroots.h`
-        *   `[ ]` New file: the licence header of `torrentfileswatcher.h` naming the contributor, `#pragma once`, `#include <QList>` and `#include <QObject>`, then `#include "base/path.h"`, with `class QJsonArray;` forward-declared.
-        *   `[ ]` `struct DiscoveryRootOptions` declaring `bool recursive = false;` and a defaulted equality operator.
-        *   `[ ]` `struct DiscoveryRoot` declaring in order `Path path;` and `DiscoveryRootOptions options;`, and a defaulted equality operator. Equality exists so an unchanged list can be rejected before persistence or notification.
-        *   `[ ]` `class DiscoveryRoots final : public QObject` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRoots)`, declaring public `static void initInstance();`, `static void freeInstance();`, `static DiscoveryRoots *instance();`, `QList<DiscoveryRoot> roots() const;` and `void setRoots(const QList<DiscoveryRoot> &roots);`; signal `void rootsChanged();`; private `explicit DiscoveryRoots(QObject *parent = nullptr);`, `void load();`, `void store() const;`, `static DiscoveryRoots *m_instance;` and `QList<DiscoveryRoot> m_roots;`.
-        *   `[ ]` After the class: `QList<DiscoveryRoot> parseDiscoveryRoots(const QJsonArray &jsonArray);` and `QJsonArray serializeDiscoveryRoots(const QList<DiscoveryRoot> &roots);`.
-
-    *   `[ ]` `construction`
-        *   `[ ]` `initInstance()` constructs the one instance when none exists, and the constructor calls `load()`, so `instance()` returns a complete list from its first call. `freeInstance()` deletes it and resets `m_instance`.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `parseDiscoveryRoots(jsonArray)`: for each value in order, not an object → dropped; `Path(object.value(OPTION_PATH).toString())` empty or relative → dropped; a path already in the result by `operator==` → dropped; otherwise appended as `DiscoveryRoot {.path = path, .options = {.recursive = object.value(OPTION_RECURSIVE).toBool()}}`.
-        *   `[ ]` `serializeDiscoveryRoots(roots)`: one object per root in order, `{{OPTION_PATH, root.path.data()}, {OPTION_RECURSIVE, root.options.recursive}}`.
-        *   `[ ]` `load()`: the file absent → `m_roots` stays empty, silently; any other read error → a warning naming the error; a parse error → a warning naming the path and the error; a document that is not an array → a warning naming the path; otherwise `m_roots = parseDiscoveryRoots(document.array())`.
-        *   `[ ]` `setRoots(roots)`: `roots == m_roots` → return without writing or emitting; otherwise `m_roots = roots`, then `store()`, then `emit rootsChanged()`.
-        *   `[ ]` `store()`: writes `QJsonDocument(serializeDiscoveryRoots(m_roots)).toJson()`; a failed write → a warning naming the path and the error.
-
-    *   `[ ]` test/`testdiscoveryroots.cpp`
-        *   `[ ]` New file proving `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`. Until the implementation element exists it fails to link with an unresolved symbol for each, and that link failure is its red state.
-        *   `[ ]` Form as the first epic's `testbittorrentfilesearcher.cpp`, with `class TestDiscoveryRoots`, includes `<QJsonArray>`, `<QJsonObject>`, `<QObject>`, `<QTest>`, `"base/discoveryroots.h"`, `"base/global.h"` and `"base/path.h"`, and no fixture. Paths are `/music` and `/video`.
-        *   `[ ]` `testRoundTripPreservesOrderAndOptions` — roots `/video` recursive, `/music` not recursive → serialised then parsed, the same two roots in the same order with the same flags.
-        *   `[ ]` `testSerializedShape` — `/music` recursive → a one-element array whose object holds `path` `/music` and `recursive` `true` and no other key.
-        *   `[ ]` `testRecursiveDefaultsFalse` — an object holding `path` `/music` alone → one root, not recursive.
-        *   `[ ]` `testEmptyPathDropped` — objects with `path` empty and `/music` → `/music` alone.
-        *   `[ ]` `testRelativePathDropped` — objects with `path` `music` and `/video` → `/video` alone.
-        *   `[ ]` `testNonObjectDropped` — the string `/music` then an object with `path` `/video` → `/video` alone.
-        *   `[ ]` `testDuplicateKeepsFirst` — `/music` recursive then `/music` not recursive → one root, recursive.
-        *   `[ ]` `testValueEquality` — two roots with the same path and options compare equal, and changing either the path or recursion flag makes them unequal. The storage-level no-op is verified manually because constructing `DiscoveryRoots` also reaches the profile and filesystem.
-
-    *   `[ ]` test/`CMakeLists.txt`
-        *   `[ ]` Add `testdiscoveryroots.cpp` to `testFiles` after `testconceptsstringable.cpp` and before `testglobal.cpp`.
-
-    *   `[ ]` src/base/`discoveryroots.cpp`
-        *   `[ ]` New file: the licence header of `torrentfileswatcher.cpp` naming the contributor, `#include "discoveryroots.h"`, then `#include <QJsonArray>`, `#include <QJsonDocument>`, `#include <QJsonObject>` and `#include <QJsonParseError>`, then `#include "base/global.h"`, `#include "base/logger.h"`, `#include "base/profile.h"` and `#include "base/utils/io.h"`.
-        *   `[ ]` File-scope constants `const QString CONF_FILE_NAME = u"discovery_roots.json"_s;`, `const QString OPTION_PATH = u"path"_s;` and `const QString OPTION_RECURSIVE = u"recursive"_s;`, then `DiscoveryRoots *DiscoveryRoots::m_instance = nullptr;`.
-        *   `[ ]` Define the singleton functions, the constructor, `roots()`, `setRoots()`, `load()`, `store()`, `parseDiscoveryRoots()` and `serializeDiscoveryRoots()` per the construction element and the interaction spec, each warning written with `tr()` and `LogMsg(..., Log::WARNING)`.
-
-    *   `[ ]` src/base/`CMakeLists.txt`
-        *   `[ ]` Add `discoveryroots.h` to the headers of `add_library(qbt_base ...)` after `digest32.h`, and `discoveryroots.cpp` to its sources after `bittorrent/trackerentrystatus.cpp` and before `exceptions.cpp`.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `discoveryroots` depends inward on `path`, `profile`, `utils/io`, `logger` and `global`, and on nothing in `src/base/bittorrent`, so `sessionimpl` depends on it without a cycle.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` EN-1, ST-5: each root is a JSON object carrying `recursive`, proven by `testSerializedShape` and `testRoundTripPreservesOrderAndOptions`.
-        *   `[ ]` ST-6: with no file, `roots()` is empty.
-        *   `[ ]` ST-7: `DiscoveryRoots` is a singleton with `initInstance()` and `freeInstance()`, called by the `application` node.
-        *   `[ ]` CR-3: the configured order survives persistence, proven by `testRoundTripPreservesOrderAndOptions`.
-        *   `[ ]` BT-1: both files are registered in `src/base/CMakeLists.txt`.
-        *   `[ ]` BT-3: `testdiscoveryroots.cpp` is registered in `testFiles`.
-        *   `[ ]` `load()` and `store()` reach `specialFolderLocation()` and `LogMsg()`, which no `qbt_base` test initialises, so persistence to disk is verified by the explicit restart and malformed-file cases at the Epic 3 commit boundary.
-        *   `[ ]` Applying another Downloads setting while the discovery root list is unchanged performs no discovery-root write and emits no `rootsChanged()` signal, verified at the Epic 3 commit boundary.
-
-*   `[ ]` [BE] src/app/`application` — call `DiscoveryRoots::initInstance()` before `BitTorrent::Session::initInstance()` and `DiscoveryRoots::freeInstance()` after `BitTorrent::Session::freeInstance()`, so the list outlives every session read of it. T16
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: `SessionImpl` reads the discovery root list whenever it composes a search, so the list must exist for the session's whole lifetime.
-        *   `[ ]` Functional: the singleton is constructed before the session and destroyed after it.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `Application` calls `BitTorrent::Session::initInstance()` directly after `Net::DownloadManager::initInstance()`, and `TorrentFilesWatcher::initInstance()` later, inside the handler connected to `Session::restored`; it calls `BitTorrent::Session::freeInstance()` after `TorrentFilesWatcher::freeInstance()`. `SessionImpl` can reach `findExistingContent()` from `TorrentImpl::handleSaveResumeData()` for any torrent it holds, from construction to destruction, so the discovery root list is constructed before the session and destroyed after it rather than beside the watcher.
-
-    *   `[ ]` src/app/`application.cpp`
-        *   `[ ]` Add `#include "base/discoveryroots.h"` after `#include "base/bittorrent/torrent.h"`.
-        *   `[ ]` Add `DiscoveryRoots::initInstance();` after `Net::DownloadManager::initInstance();` and before `BitTorrent::Session::initInstance();`.
-        *   `[ ]` Add `DiscoveryRoots::freeInstance();` after `BitTorrent::Session::freeInstance();`.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` ST-7: `Application` owns the singleton's lifetime.
-        *   `[ ]` `DiscoveryRoots::instance()` is non-null throughout the session's lifetime, verified by the dependency map's manual case for step 22.
-
-*   `[ ]` [BE] src/base/bittorrent/`filesearcher` — add `SubdirectoryMap` and `enumerateSubdirectories()`, walking every directory beneath a root into a map from case-folded name to every directory bearing it, and give `candidateRoots()` a trailing list of optional maps, so a search root with a map contributes, for each directory named for the torrent or its `.torrent` file at any depth, that directory's parent then the directory. T17, T18
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the root form, name form and source form reach only content folders directly beneath a search root or one folder below it. On a volume structured as `volume/someDeterminant/someOtherDeterminant/contentFolder/content`, every probe stops at `volume/someDeterminant`, and searching such a tree by probing would need a probe of every directory for every torrent.
-        *   `[ ]` Functional: walk every directory beneath a root once, at any depth, into a map from subdirectory name to every directory bearing that name, ordered by `Path::data()`, folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`. Hidden directories, symbolic links and junctions are neither listed nor entered.
-        *   `[ ]` Functional: a search root supplied with a map contributes the root form; then, for each directory the map holds under the torrent's name and then under the source name, the directory's parent followed by the directory. The parent is where a torrent whose declared paths begin with its own folder is found, and the directory is where a single-file torrent or content nested in a folder of the torrent's name is found. A search root supplied without a map contributes the three forms it does now.
-        *   `[ ]` Non-functional: a root that cannot be listed yields an empty map and fails nothing, and a directory beneath it that cannot be listed contributes nothing beneath it while its siblings are walked; calls supplying no maps behave as they do now.
-
-    *   `[ ]` `role`
-        *   `[ ]` Domain logic in `src/base/bittorrent`, run on the session I/O thread.
-        *   `[ ]` Out of scope: deciding which roots are enumerated, and holding or discarding a map, which the `sessionimpl` node does.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: walking a directory tree, folding names, and serving parent and directory candidates from a map. Outside: where roots and maps come from.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `<QDir>`, `<QDirIterator>` and `<QFileInfo>` — a non-recursive `QDirIterator` per directory over `QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks`, `QDirIterator::nextFileInfo()` and `QFileInfo::isJunction()`, available from the Qt 6.6 minimum the build requires. `TorrentFilesWatcher::Worker::processFolder()` recurses into every subdirectory of a recursive watched folder, and this walk reaches the same depth.
-        *   `[ ]` `<algorithm>` — `std::ranges::sort`, ordering each map value by `Path::data()`.
-        *   `[ ]` `base/path.h` — `Path::filename()`, `Path::parentPath()` and `Path::CASE_SENSITIVITY`.
-        *   `[ ]` `<QHash>` and `<optional>` — the map and its per-root presence.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The first epic's `filesearcher` node defines `candidateRoots()`, its containment check, its deduplication through `QList::contains`, and `testbittorrentcandidateroots.cpp`. `SubdirectoryMap` is keyed on `QString` because `qHash(const Path &, std::size_t)` hashes the unfolded string while `operator==` compares through `Path::CASE_SENSITIVITY`.
-
-    *   `[ ]` src/base/bittorrent/`filesearcher.h`
-        *   `[ ]` Add `#include <optional>` to a standard library group ahead of the Qt group, and `#include <QHash>` to the Qt group before `#include <QObject>`.
-        *   `[ ]` Before `struct FileSearchResult`, add `using SubdirectoryMap = QHash<QString, PathList>;`.
-        *   `[ ]` The `candidateRoots()` declaration gains the trailing parameter `const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {}`.
-        *   `[ ]` After it, declare `SubdirectoryMap enumerateSubdirectories(const Path &root);`.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `foldedName(name)`, new in the anonymous namespace: `name.toCaseFolded()` where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and `name` otherwise.
-        *   `[ ]` `enumerateSubdirectories(root)`: `root` empty → an empty map, since `QDirIterator` over an empty path lists the working directory. Otherwise a breadth-first walk over `PathList pending {root}`, indexed by `for (qsizetype i = 0; i < pending.size(); ++i)` with `const Path directory = pending.at(i);` copied before any append. Each `directory` is listed by `QDirIterator iter {directory.data(), (QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks)}`, without `QDirIterator::Subdirectories`. For each `const QFileInfo info = iter.nextFileInfo();`, an entry for which `info.isJunction()` holds is skipped; otherwise `const Path subdirectory {info.filePath()}` is appended to `map[foldedName(subdirectory.filename())]` and to `pending`. After the walk, each value of the map is sorted with `std::ranges::sort(paths, {}, &Path::data)`.
-        *   `[ ]` The filter omits `QDir::Hidden` and carries `QDir::NoSymLinks`, and the junction test runs on the same entry, so a hidden directory, a symbolic link and a junction are neither listed nor appended to `pending`, and the walk never enters them. The walk is explicit so that these tests govern descent as well as listing. A root or a directory beneath it that does not exist or cannot be read lists no entry, and the walk continues with the rest of `pending`. The root itself is never an entry.
-        *   `[ ]` `candidateRoots()`: the search root at index `i` of `searchRoots` takes `subdirectoryMaps.value(i)`; empty-entry substitution of `defaultSavePath` is unchanged. Without a map it contributes the root form, name form and source form as before.
-        *   `[ ]` With a map it contributes the root form; then, when `hasName`, for each `hit` of `map->value(foldedName(nameForm.data()))` in order, `hit.parentPath()` then `hit`; then, when `hasSource`, for each `hit` of `map->value(foldedName(sourceStem.data()))` in order, `hit.parentPath()` then `hit`. It contributes neither `effectiveRoot / nameForm` nor `effectiveRoot / sourceStem`. Each candidate passes `tryAppend`, the same exclusion and deduplication as every other, so a hit directly beneath the root collapses its parent into the root form and a parent shared by several hits is contributed once, at its first position.
-
-    *   `[ ]` test/testdata/`filesearcher`
-        *   `[ ]` test/testdata/filesearcher/library/Album One/`alpha.txt` — the single line `fixture` followed by a line feed.
-        *   `[ ]` test/testdata/filesearcher/library/Album One/Disc 1/`alpha.txt` — the single line `fixture` followed by a line feed.
-        *   `[ ]` test/testdata/filesearcher/library/album two/`alpha.txt` — the single line `fixture` followed by a line feed.
-        *   `[ ]` test/testdata/filesearcher/library/`loose.txt` — the single line `fixture` followed by a line feed.
-        *   `[ ]` test/testdata/filesearcher/library/Genre/Artist/Album Three/`alpha.txt` — the single line `fixture` followed by a line feed.
-        *   `[ ]` test/testdata/filesearcher/library/Genre/Other/Disc 1/`alpha.txt` — the single line `fixture` followed by a line feed.
-
-    *   `[ ]` test/`testbittorrentcandidateroots.cpp`
-        *   `[ ]` Add `#include <optional>`. Slots below pass search roots `/library` with the map list stated, over the file's default inputs unless stated otherwise. Map keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, written below as the unfolded name.
-        *   `[ ]` `testDeepHitContributesParentThenDirectory` — maps holding `{Album → [/library/a/b/Album]}` → `/library`, `/library/a/b`, `/library/a/b/Album`.
-        *   `[ ]` `testShallowHitParentCollapsesIntoRootForm` — maps holding `{Album → [/library/Album]}` → `/library`, `/library/Album`.
-        *   `[ ]` `testEveryHitOfRepeatedNameContributes` — maps holding `{Album → [/library/a/Album, /library/b/Album]}` → `/library`, `/library/a`, `/library/a/Album`, `/library/b`, `/library/b/Album`.
-        *   `[ ]` `testSourceHitsFollowNameHits` — maps holding `{Album → [/library/p/Album], Album Rip → [/library/q/Album Rip]}` → `/library`, `/library/p`, `/library/p/Album`, `/library/q`, `/library/q/Album Rip`.
-        *   `[ ]` `testSharedParentContributesOnce` — maps holding `{Album → [/library/x/Album], Album Rip → [/library/x/Album Rip]}` → `/library`, `/library/x`, `/library/x/Album`, `/library/x/Album Rip`.
-        *   `[ ]` `testHitParentEqualToOwnPathIsExcluded` — save `/library/p`, maps holding `{Album → [/library/p/Album]}` → `/library`, `/library/p/Album`.
-        *   `[ ]` `testUncontainedNameIsNotLookedUp` — torrent name `..`, source file name empty, maps holding `{.. → [/elsewhere/inner]}` → `/library`.
-        *   `[ ]` `testEnumeratedRootContributesRootFormOnMiss` — maps holding one empty map → `/library`.
-        *   `[ ]` `testRootsBeyondMapsAreProbed` — search roots `/library`, `/watch`, maps holding one empty map → `/library`, `/watch`, `/watch/Album`, `/watch/Album Rip`.
-        *   `[ ]` `testNulloptMapIsProbed` — maps holding `std::nullopt` → `/library`, `/library/Album`, `/library/Album Rip`.
-        *   `[ ]` `testLookupFoldsCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — torrent name `ALBUM`, maps holding `{album → [C:/library/x/Album]}`, search roots `C:/library` → `C:/library`, `C:/library/x`, `C:/library/x/Album`.
-
-    *   `[ ]` test/`testbittorrentsubdirectories.cpp`
-        *   `[ ]` New file proving `enumerateSubdirectories()`. Until the implementation element exists it fails to link with an unresolved symbol `enumerateSubdirectories`, and that link failure is its red state.
-        *   `[ ]` Form, includes and fixture root as `testbittorrentfilesearcher.cpp`, with `class TestBittorrentSubdirectories` and without `<QPromise>` and `"base/bittorrent/common.h"`. Add `<QFile>`, `<QFileInfo>`, `<QScopeGuard>` and `<QTemporaryDir>` for the slots building trees at run time, and `<QtSystemDetection>` for their platform guards. Expected keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and each value is compared as a `PathList`.
-        *   `[ ]` `testListsEveryDirectoryInTree` — root `library` → exactly the keys `Album One`, `Disc 1`, `album two`, `Genre`, `Artist`, `Album Three` and `Other`, with `Album One` → [`library/Album One`], `album two` → [`library/album two`], `Genre` → [`library/Genre`], `Artist` → [`library/Genre/Artist`], `Album Three` → [`library/Genre/Artist/Album Three`] and `Other` → [`library/Genre/Other`].
-        *   `[ ]` `testRepeatedNameListsEachInPathOrder` — root `library` → `Disc 1` → [`library/Album One/Disc 1`, `library/Genre/Other/Disc 1`].
-        *   `[ ]` `testFilesAndRootAreNotListed` — root `library` → no entry for `loose.txt`, `alpha.txt` or `library`.
-        *   `[ ]` `testHiddenDirectoriesAreNotEntered`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires dot-prefixed hidden directories.")` — in a `QTemporaryDir`, create `visible` and `.hidden/inner`, `QVERIFY` each setup operation → exactly the key `visible`.
-        *   `[ ]` `testSymbolicLinksAreNotFollowed`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires symbolic links.")` — in a `QTemporaryDir` `t`, create `real/inner`, then `QFile::link(t, real/loop)` and `QFile::link(real, linked)`, `QVERIFY` each setup operation → the walk returns, with exactly the keys `real` and `inner`, `real` → [`t/real`].
-        *   `[ ]` `testUnreadableBranchIsSkipped`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires Unix permission semantics.")` — in a `QTemporaryDir`, create `open/inside` and `closed/child`, remove the permissions of `closed` with `QFile::setPermissions(closed, {})`, and register a `qScopeGuard` restoring owner read, write and execute before `QTemporaryDir` cleans up. `QVERIFY` each setup operation. When `QFileInfo::exists()` still reports `closed/child`, use `QSKIP`, because the running account can traverse `closed`. Otherwise → exactly the keys `open`, `inside` and `closed`.
-        *   `[ ]` `testAbsentRootYieldsEmptyMap` — root `absent` → empty.
-        *   `[ ]` `testEmptyRootYieldsEmptyMap` — root `Path()` → empty.
-        *   `[ ]` `testKeysFoldCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — root `library` → the map holds the keys `album one` and `album three`.
-
-    *   `[ ]` test/`CMakeLists.txt`
-        *   `[ ]` Add `testbittorrentsubdirectories.cpp` to `testFiles` after `testbittorrentpeeraddress.cpp` and before `testbittorrenttorrentdescriptor.cpp`.
-
-    *   `[ ]` src/base/bittorrent/`filesearcher.cpp`
-        *   `[ ]` Add `#include <algorithm>` in a standard library group ahead of the Qt group, and `#include <QDir>`, `#include <QDirIterator>` and `#include <QFileInfo>` before `#include <QPromise>`.
-        *   `[ ]` Add `foldedName` to the anonymous namespace, extend `candidateRoots()`, and define `enumerateSubdirectories()` after it, per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `filesearcher` depends inward on `path` and Qt core alone, and on nothing that depends on it.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` EN-2, EN-3: `testListsEveryDirectoryInTree`, `testRepeatedNameListsEachInPathOrder`, `testFilesAndRootAreNotListed`.
-        *   `[ ]` EN-4, EN-5: `testKeysFoldCaseOnWindows`, `testLookupFoldsCaseOnWindows`; `SubdirectoryMap` is keyed on `QString`.
-        *   `[ ]` EN-8: `testHiddenDirectoriesAreNotEntered` and `testSymbolicLinksAreNotFollowed` on Unix. Windows does not give an unprivileged unit test a stable way to create a junction, so the dependency map's manual case for step 22 verifies that a junction pointing back at its root is not entered.
-        *   `[ ]` CR-8: `testDeepHitContributesParentThenDirectory`, `testShallowHitParentCollapsesIntoRootForm`, `testEveryHitOfRepeatedNameContributes`, `testSourceHitsFollowNameHits`, `testSharedParentContributesOnce`, `testHitParentEqualToOwnPathIsExcluded`, `testUncontainedNameIsNotLookedUp`, `testEnumeratedRootContributesRootFormOnMiss`.
-        *   `[ ]` PS-12: `testAbsentRootYieldsEmptyMap`, `testEmptyRootYieldsEmptyMap`, and the Unix-only `testUnreadableBranchIsSkipped`.
-        *   `[ ]` CN-1, CR-2: every existing slot of `testbittorrentcandidateroots.cpp`, `testbittorrentfilesearcher.cpp` and `testbittorrentfilesearchermultiroot.cpp` passes unmodified, alongside `testRootsBeyondMapsAreProbed` and `testNulloptMapIsProbed`.
-        *   `[ ]` BT-3, BT-5, BT-6: `testbittorrentsubdirectories.cpp` is registered and uses fixtures under `test/testdata/filesearcher`; the new `testbittorrentcandidateroots.cpp` slots use none.
-
-*   `[ ]` [BE] src/base/bittorrent/`sessionimpl` — add `Session::findTorrentLocations()`, a batch operation taking torrent IDs and an optional pointed root; compose each operation's search roots as the pointed root, then the discovery roots in configured order, then the watched folder save paths; enumerate the pointed root and every recursive discovery root once on the I/O thread for that operation; reuse those immutable maps for every torrent in a batch and for automatic additions arriving while an unchanged add operation is in flight; and preserve the first epic's exact candidate-membership attribution when naming pointed and discovery roots in the log. T22, T20
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the composition behind every discovery searches only the torrent's own paths and the watched folder save paths, so neither a configured discovery root nor a directory the user points at is searched.
-        *   `[ ]` Functional: compose the search roots as a pointed root where one is supplied, then the discovery roots in the order configured, then the watched folder save paths, all after the torrent's own save path and download path.
-        *   `[ ]` Functional: walk the tree beneath the pointed root and every discovery root marked recursive once for the operation that needs it, and hand those maps to `candidateRoots()`; a batch reuses the same maps for every torrent it submits, and an automatic addition reuses the maps of an add operation still in flight whose composed roots and default save path are unchanged.
-        *   `[ ]` Functional: accept a list of torrent IDs and an optional pointed root through `findTorrentLocations()`, use the pointed root for that operation alone, writing nothing to the discovery root list, report each result through the existing per-torrent signal as it completes, and enumerate the operation's roots once rather than once per torrent.
-        *   `[ ]` Functional: `findTorrentLocation()` keeps its declaration and its outcome, and runs as a one-torrent batch.
-        *   `[ ]` Functional: record the exact search root and whether it was the pointed root, a discovery root or a watched folder root, without inferring provenance from ancestry.
-        *   `[ ]` Non-functional: listing is filesystem I/O and runs on the session I/O thread with the probing; the operation-local maps are immutable while its torrent searches use them and are discarded after its last search ends. No session-lived filesystem cache is added.
-
-    *   `[ ]` `role`
-        *   `[ ]` Application service in `src/base/bittorrent`, the one place candidate roots are composed.
-        *   `[ ]` Out of scope: storing or editing discovery roots, which are the `discoveryroots` and `discoveryrootsmodel` nodes; asking the user for a directory, which is the `unmatchedtorrentsdialog` node.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the order of search roots, which of them are enumerated, sharing their maps within one operation, and the exact origin named in the log. Outside: how a map is built and how candidates are derived from it.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/discoveryroots.h` — `DiscoveryRoots::instance()`, `DiscoveryRoots::roots()` and `DiscoveryRoot`, from the `discoveryroots` node. A lower layer, depended on inward.
-        *   `[ ]` `filesearcher.h` — `SubdirectoryMap`, `enumerateSubdirectories()` and the extended `candidateRoots()`, from the `filesearcher` node. Already included by `sessionimpl.cpp`.
-        *   `[ ]` `<memory>` — `std::shared_ptr`, holding one operation's snapshot and maps across its searches, and `std::weak_ptr`, referring to the in-flight add operation without owning it.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `searchExistingContent()`, `findExistingContent()`, `findTorrentLocation()` and the log continuation are those the first and second epics' `sessionimpl` nodes define. `DiscoveryRoots::roots()` is read on the main thread, where the operation snapshot is composed before dispatching. `findIncompleteFiles()` dispatches onto the I/O thread through `QMetaObject::invokeMethod(m_fileSearcher, ...)`; functors queued to that one thread run in the order they are queued. The first epic attributes a winning watched-folder candidate by rebuilding each root's exact candidate set in order and taking the first set containing the winning path; this node extends that rule and does not replace it with an ancestry test.
-
-    *   `[ ]` src/base/bittorrent/`session.h`
-        *   `[ ]` After `virtual void findTorrentLocation(const TorrentID &id) = 0;`, which is unchanged, add `virtual void findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot = {}) = 0;`, as `removeTorrent()` carries a trailing default. It is an operation boundary for sharing enumeration; it does not replace the per-torrent completion signal.
-
-    *   `[ ]` src/base/bittorrent/`sessionimpl.h`
-        *   `[ ]` Add `#include <memory>` after `#include <functional>`.
-        *   `[ ]` After `void findTorrentLocation(const TorrentID &id) override;`, which is unchanged, add `void findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot = {}) override;`.
-        *   `[ ]` In the `private` section, before the `searchExistingContent()` declaration, forward-declare the nested `struct SearchOperation;` and declare, in order, `std::shared_ptr<SearchOperation> composeSearchOperation(const Path &pointedRoot) const;`, `void enumerateSearchOperation(const std::shared_ptr<SearchOperation> &operation);` and `std::shared_ptr<SearchOperation> createSearchOperation(const Path &pointedRoot);`.
-        *   `[ ]` After `QHash<TorrentID, LocationAssignmentState> m_locationAssignments;`, add `std::weak_ptr<SearchOperation> m_inFlightAddOperation;`.
-        *   `[ ]` The `searchExistingContent()` declaration gains the trailing parameter `std::shared_ptr<const SearchOperation> operation`.
-
-    *   `[ ]` src/base/bittorrent/`sessionimpl.cpp` types
-        *   `[ ]` `struct SessionImpl::SearchOperation`, defined in `sessionimpl.cpp` before its first use, declares `enum class Origin { Pointed, Discovery, WatchedFolder };`, `struct Root { Path path; Origin origin; bool enumerated; bool operator==(const Root &) const = default; };`, and the members `QList<Root> roots;`, `PathList searchRoots;`, `Path defaultSavePath;` and `QList<std::optional<SubdirectoryMap>> subdirectoryMaps;`. `searchRoots` holds `roots`' paths in the same order, as `candidateRoots()` takes them.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `composeSearchOperation(pointedRoot)`, on the main thread and touching no filesystem, builds a `std::make_shared<SearchOperation>()` whose `roots` hold, in order: `pointedRoot` where non-empty, as `Origin::Pointed` and enumerated; each `DiscoveryRoot` of `DiscoveryRoots::instance()->roots()`, as `Origin::Discovery` and enumerated exactly when `root.options.recursive`; then each entry of `m_watchedFolderSavePaths` resolved as the first epic resolves it, as `Origin::WatchedFolder` and not enumerated. It fills `searchRoots` from `roots`, sets `defaultSavePath` to `savePath()`, and returns the operation.
-        *   `[ ]` `enumerateSearchOperation(operation)`: when any root of `operation` is enumerated, queue one functor onto `m_fileSearcher` through `QMetaObject::invokeMethod`, capturing the operation, that fills `subdirectoryMaps` with `enumerateSubdirectories(roots[i].path)` at each enumerated index and `std::nullopt` at each other. When none is, `subdirectoryMaps` stays empty, `subdirectoryMaps.value(i)` yields `std::nullopt` for every index, and nothing is listed.
-        *   `[ ]` `createSearchOperation(pointedRoot)`: `composeSearchOperation(pointedRoot)`, then `enumerateSearchOperation()` on the result, then return it.
-        *   `[ ]` The enumeration functor is queued before every search of its operation, including every search of an automatic addition that reuses it, so on the one I/O thread it completes before any of them reads the maps; after it, nothing writes the operation. Each search reaches its main-thread continuation through its promise, so the continuation reads maps already written.
-        *   `[ ]` `searchExistingContent(..., operation)` keeps the first epic's derivation of `nameFormName`, and reads `const bool appendExtension = isAppendExtensionEnabled();` on the calling thread. Inside the functor it queues onto `m_fileSearcher`, it computes `candidates` as `candidateRoots(torrentSavePath, torrentDownloadPath, operation->searchRoots, operation->defaultSavePath, nameFormName, sourceFileName, operation->subdirectoryMaps)`, replacing the first epic's `candidateRoots()` call on the calling thread, because the maps exist only once the enumeration functor has run. It then calls `m_fileSearcher->searchRoots(filePaths, torrentSavePath, torrentDownloadPath, candidates, appendExtension, promise)`. The functor and the continuation each capture `operation` by value, so the operation is released when the last continuation of its last search ends. No session-lived filesystem cache is added.
-        *   `[ ]` The continuation with `result.foundAtOwnPath` false and `result.matchCount` above 0 takes as origin the first index `i` of `operation->roots` for which `candidateRoots({}, {}, {roots[i].path}, defaultSavePath, nameFormName, sourceFileName, {subdirectoryMaps.value(i)})` contains the winning location, with the entry read as the first epic reads it, and names it `tr("pointed root \"%1\"")`, `tr("discovery root \"%1\"")` or `tr("watched folder save path \"%1\"")` by that root's `Origin`, substituting that exact root, in the first epic's "Found existing torrent content" message. No origin is classified because the winning path has a root as an ancestor. The continuation with `result.matchCount` equal to 0 and `result.searchedCandidates` true logs the first epic's "Existing torrent content not found" message. Otherwise it logs nothing.
-        *   `[ ]` `findExistingContent()` returns `findIncompleteFiles(torrentSavePath, torrentDownloadPath, filePaths)` first when either setting is off, and obtains an operation only in the branch that follows. There it calls `composeSearchOperation({})` and locks `m_inFlightAddOperation`. A live operation whose `roots` and `defaultSavePath` equal the composed operation's is used. Otherwise `enumerateSearchOperation()` is called on the composed operation, `m_inFlightAddOperation` is assigned it, and it is used. The operation used is passed to `searchExistingContent()`. `m_inFlightAddOperation` owns nothing, so the operation and its maps are released when the last continuation holding it ends. **Find location** and **Search folder...** operations are never assigned to `m_inFlightAddOperation`.
-        *   `[ ]` `findTorrentLocation(id)` → `findTorrentLocations({id})`, keeping the second epic's outcomes.
-        *   `[ ]` `findTorrentLocations(ids, pointedRoot)`: for each ID in order, no torrent in `m_torrents` under it, or a torrent without metadata → `emit torrentLocationFound(id, {}, false)`; otherwise the torrent joins the valid list. An empty valid list → return, creating no operation. Otherwise one `createSearchOperation(pointedRoot)` is shared by every valid torrent's `searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {}, operation)`, each continued with `.then(this, ...)` into `emit torrentLocationFound(id, result.savePath, ((result.matchCount > 0) || result.foundAtOwnPath))` as its own search completes.
-
-    *   `[ ]` src/base/bittorrent/`sessionimpl.cpp`
-        *   `[ ]` Add `#include "base/discoveryroots.h"` after `#include "base/algorithm.h"`.
-        *   `[ ]` Define `SessionImpl::SearchOperation`, `SessionImpl::composeSearchOperation()`, `SessionImpl::enumerateSearchOperation()` and `SessionImpl::createSearchOperation()` before `SessionImpl::searchExistingContent()`; revise `SessionImpl::searchExistingContent()`, `SessionImpl::findExistingContent()` and `SessionImpl::findTorrentLocation()`; and define `SessionImpl::findTorrentLocations()` after `SessionImpl::findTorrentLocation()`, per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `sessionimpl` gains a dependency on `discoveryroots` in `src/base`, which depends on nothing in `src/base/bittorrent`. `src/gui` supplies a pointed root only through `Session::findTorrentLocations()`.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` CR-3: the pointed root precedes the discovery roots, which precede the watched folder save paths, in configured order.
-        *   `[ ]` CR-10: the discovery root list is read in `createSearchOperation()`, ahead of the watched folder save paths, and maps are supplied for recursive roots.
-        *   `[ ]` EN-2, EN-6, EN-7: the pointed root is enumerated on the terms of a recursive discovery root, each root is listed once per operation, automatic additions arriving while an unchanged add operation is in flight share its listing, and the maps live no longer than that operation.
-        *   `[ ]` ST-8: nothing in this node writes to `DiscoveryRoots`.
-        *   `[ ]` RL-3, RL-5: `enumerateSubdirectories()` runs on `m_fileSearcher`'s thread.
-        *   `[ ]` ST-4: with either setting off, `findExistingContent()` returns `findIncompleteFiles()`'s result, reading no discovery root.
-        *   `[ ]` IF-13: the batch operation retains the existing per-torrent completion signal, so each outcome is reported as its search completes.
-        *   `[ ]` LG-1: the origin identifies the exact candidate-producing root. Nested pointed, discovery and watched-folder roots cannot be misclassified through ancestry.
-        *   `[ ]` This node is verified by the dependency map's manual case for step 22 and the Epic 3 batch-enumeration and overlapping-origin cases at the commit boundary.
-
-*   `[ ]` [UI] src/gui/`transferlistwidget` — submit each **Find location** invocation's new IDs through one `Session::findTorrentLocations()` call, so a multi-torrent invocation enumerates each recursive root once. T22
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the second epic's second pass calls `findTorrentLocation()` once per ID, so each torrent would be its own operation and list every recursive discovery root again.
-        *   `[ ]` Functional: one invocation's newly registered IDs form one operation.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `findSelectedTorrentsLocation()`, `submitted`, `m_findLocationOperation` and `handleTorrentLocationFound()` are those the second epic's `transferlistwidget` node defines.
-
-    *   `[ ]` src/gui/`transferlistwidget.cpp`
-        *   `[ ]` In `findSelectedTorrentsLocation()`, the second pass becomes one `BitTorrent::Session::instance()->findTorrentLocations(submitted);`, made only when `submitted` is non-empty. The first pass, registration of every ID before that call, the operation map, `handleTorrentLocationFound()` and assignment are unchanged.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `transferlistwidget` depends downward on `Session` as it already does.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` EN-6: a multi-torrent invocation is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
-        *   `[ ]` IF-13: each outcome still arrives through `torrentLocationFound` as its search completes; Epic 2 integration scenarios 4 and 5 still pass.
-
-*   `[ ]` [API] src/webui/api/`torrentscontroller` — submit each `torrents/findLocation` request's new IDs through one `Session::findTorrentLocations()` call, so a multi-torrent request enumerates each recursive root once, and accept an optional `root` as that operation's pointed root. T22, T25
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the second epic's `findLocationAction()` calls `findTorrentLocation()` once per registered ID, so each torrent would be its own operation and list every recursive discovery root again.
-        *   `[ ]` Problem: a client of the web interface or the headless daemon cannot point a search at a directory, which the desktop unmatched list does through **Search folder...**.
-        *   `[ ]` Functional: one request's newly registered IDs form one operation.
-        *   `[ ]` Functional: a request carrying `root` searches its newly registered IDs with that directory as the pointed root, and writes the directory nowhere.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `findLocationAction()`, `submitted`, `m_findLocationOperation` and `onTorrentLocationFound()` are those the second epic's `torrentscontroller` node defines.
-
-    *   `[ ]` src/webui/api/`torrentscontroller.cpp`
-        *   `[ ]` In `findLocationAction()`, after the disabled test, read `const Path root {params()[u"root"_s].trimmed()};`. A non-empty `root` for which `!Utils::Fs::isDir(root)` → `throw APIError(APIErrorType::Conflict, tr("Folder does not exist"))`, before any ID is registered.
-        *   `[ ]` In `findLocationAction()`, the calls to `findTorrentLocation()` over `submitted` become one `BitTorrent::Session::instance()->findTorrentLocations(submitted, root);`, made only when `submitted` is non-empty, so an empty `root` is no pointed root. Registration of every ID before that call, the operation map, `onTorrentLocationFound()`, assignment and the answer are unchanged.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `torrentscontroller` depends downward on `Session` as it already does, and writes nothing to `DiscoveryRoots`.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` EN-6: a multi-torrent request is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
-        *   `[ ]` IF-20: a request carrying an existing `root` searches its registered torrents with it as the pointed root; a `root` that is not an existing directory answers HTTP 409 and registers nothing.
-        *   `[ ]` ST-8: `root` reaches only `findTorrentLocations()`.
-        *   `[ ]` IF-12: the new message passes through `tr()`.
-        *   `[ ]` Verify the parameter through Epic 3 integration scenario 10 at the commit boundary.
-        *   `[ ]` IF-13: each outcome still arrives through `torrentLocationFound` as its search completes; Epic 2 integration scenarios 18 and 19 still pass.
-
-*   `[ ]` [UI] src/gui/`discoveryrootsmodel` — add `DiscoveryRootsModel`, a `QAbstractListModel` over the discovery root list, following `WatchedFoldersModel`, holding edits until `apply()` writes the list through `DiscoveryRoots::setRoots()`. T19
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the options dialog needs an editable, ordered view of the discovery root list whose edits take effect only when the page is applied.
-        *   `[ ]` Functional: present each root by path in configured order; add a root at the end after checking it; remove rows; read and replace a row's options; write the whole list on `apply()`.
-        *   `[ ]` Functional: reload when the stored list changes by another route.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation model in `src/gui`.
-        *   `[ ]` Out of scope: persistence, which is the `discoveryroots` node; the per-root dialog and the view, which are the `discoveryrootoptionsdialog` and `optionsdialog` nodes.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the pending list, its rows, its validation and its application. Outside: storage and presentation of options.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/discoveryroots.h` — `DiscoveryRoots`, `DiscoveryRoot`, `DiscoveryRootOptions`, `roots()`, `setRoots()` and `rootsChanged`. A lower layer, depended on inward.
-        *   `[ ]` `base/exceptions.h` — `InvalidArgument` and `RuntimeError`.
-        *   `[ ]` `<QDir>` — `QDir::exists()` and `QDir::isReadable()`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `WatchedFoldersModel` is the model: constructed with the storage object and a parent, one column, `Qt::DisplayRole` returning `toString()` of the path, `headerData()` returning one translated title, `removeRows()` validating its range and bracketing the removal with `beginRemoveRows()` and `endRemoveRows()`, `addFolder()` throwing `InvalidArgument` for an empty or relative path and `RuntimeError` for a duplicate, missing or unreadable one, `folderOptions()` and `setFolderOptions()` asserting the row, and `apply()`.
-
-    *   `[ ]` src/gui/`discoveryrootsmodel.h`
-        *   `[ ]` New file: the licence header of `watchedfoldersmodel.h` naming the contributor, `#pragma once`, `#include <QAbstractListModel>` and `#include <QList>`, then `#include "base/discoveryroots.h"` and `#include "base/path.h"`.
-        *   `[ ]` `class DiscoveryRootsModel final : public QAbstractListModel` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRootsModel)`, declaring public `explicit DiscoveryRootsModel(DiscoveryRoots *discoveryRoots, QObject *parent = nullptr);`, the overrides `rowCount()`, `columnCount()`, `data()`, `headerData()` and `removeRows()` with `WatchedFoldersModel`'s signatures, `void addRoot(const Path &path, const DiscoveryRootOptions &options);`, `DiscoveryRootOptions rootOptions(int row) const;`, `void setRootOptions(int row, const DiscoveryRootOptions &options);` and `void apply();`; private `void onRootsChanged();`, `DiscoveryRoots *m_discoveryRoots = nullptr;` and `QList<DiscoveryRoot> m_roots;`.
-
-    *   `[ ]` `construction`
-        *   `[ ]` The constructor takes the storage object, copies `roots()` into `m_roots`, and connects `DiscoveryRoots::rootsChanged` to `onRootsChanged`, so the model is complete on return.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `rowCount(parent)`: a valid parent → 0; otherwise `m_roots.size()`. `columnCount()` → 1. `data(index, role)`: an index out of range → `{}`; `Qt::DisplayRole` → `m_roots.at(row).path.toString()`; any other role → `{}`. `headerData()`: horizontal display role for section 0 → `tr("Discovery root")`; otherwise `{}`.
-        *   `[ ]` `removeRows(row, count, parent)`: a valid parent or a range outside the rows → `false`; otherwise the rows are removed between `beginRemoveRows()` and `endRemoveRows()`, and `true`.
-        *   `[ ]` `addRoot(path, options)`: empty → `InvalidArgument(tr("Discovery root path cannot be empty."))`; relative → `InvalidArgument(tr("Discovery root path cannot be relative."))`; already present by `operator==` → `RuntimeError(tr("Folder '%1' is already in the discovery root list.").arg(path.toString()))`; `QDir` not existing → `RuntimeError(tr("Folder '%1' doesn't exist.").arg(path.toString()))`; not readable → `RuntimeError(tr("Folder '%1' isn't readable.").arg(path.toString()))`; otherwise appended between `beginInsertRows()` and `endInsertRows()`.
-        *   `[ ]` `rootOptions(row)` and `setRootOptions(row, options)` assert `row` is in range, then read or replace `m_roots[row].options`.
-        *   `[ ]` `apply()` → `m_discoveryRoots->setRoots(m_roots)`.
-        *   `[ ]` `onRootsChanged()` → `beginResetModel()`, `m_roots = m_discoveryRoots->roots()`, `endResetModel()`.
-
-    *   `[ ]` src/gui/`discoveryrootsmodel.cpp`
-        *   `[ ]` New file: the licence header of `watchedfoldersmodel.cpp` naming the contributor, `#include "discoveryrootsmodel.h"`, then `#include <QDir>`, then `#include "base/exceptions.h"`, and every member per the interaction spec.
-
-    *   `[ ]` src/gui/`CMakeLists.txt`
-        *   `[ ]` Add `discoveryrootsmodel.h` to the headers of `add_library(qbt_gui ...)` after `desktopintegration.h`, and `discoveryrootsmodel.cpp` to its sources after `desktopintegration.cpp`.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `discoveryrootsmodel` in `src/gui` depends downward on `discoveryroots` and `exceptions` in `src/base`. Only `optionsdialog` depends on it.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` CR-3: rows keep the configured order, new roots are appended, and `apply()` writes that order.
-        *   `[ ]` IF-12: every message and the header title are wrapped in `tr()`.
-        *   `[ ]` BT-2: both files are registered in `src/gui/CMakeLists.txt`.
-        *   `[ ]` The model is verified by the dependency map's manual case for step 19.
-
-*   `[ ]` [UI] src/gui/`discoveryrootoptionsdialog` — add `DiscoveryRootOptionsDialog`, following `WatchedFolderOptionsDialog`, carrying the **Recursive mode** checkbox for one root's `DiscoveryRootOptions`. T19
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: a discovery root's options need a dialog for adding and editing, as a watched folder's do.
-        *   `[ ]` Functional: show one root's options, with recursion as a checkbox, and return the options as edited when accepted.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/gui`, opened by the `optionsdialog` node.
-        *   `[ ]` Out of scope: which root the options belong to, and applying them.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: one checkbox and its options value. Outside: the root list.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/discoveryroots.h` — `DiscoveryRootOptions`. A lower layer, depended on inward.
-        *   `[ ]` `ui_discoveryrootoptionsdialog.h` — generated from `discoveryrootoptionsdialog.ui`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `WatchedFolderOptionsDialog` is the model: a constructor taking the options and a parent, a forward-declared `Ui` class, a raw `m_ui`, `setupUi()`, `accepted` and `rejected` connected to `accept()` and `reject()`, an accessor building the options from the checkbox, and `checkBoxRecursive` with text `Recursive mode`.
-
-    *   `[ ]` src/gui/`discoveryrootoptionsdialog.h`
-        *   `[ ]` New file: the licence header of `watchedfolderoptionsdialog.h` naming the contributor, `#pragma once`, `#include <QDialog>`, `#include "base/discoveryroots.h"`, and `namespace Ui { class DiscoveryRootOptionsDialog; }`.
-        *   `[ ]` `class DiscoveryRootOptionsDialog final : public QDialog` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRootOptionsDialog)`, declaring public `explicit DiscoveryRootOptionsDialog(const DiscoveryRootOptions &options, QWidget *parent);`, `~DiscoveryRootOptionsDialog() override;` and `DiscoveryRootOptions discoveryRootOptions() const;`, and private `Ui::DiscoveryRootOptionsDialog *m_ui = nullptr;`.
-
-    *   `[ ]` src/gui/`discoveryrootoptionsdialog.ui`
-        *   `[ ]` New file in the form of `watchedfolderoptionsdialog.ui`: class `DiscoveryRootOptionsDialog`, a `QDialog` with `windowTitle` `Discovery Root Options`, laid out by a `QVBoxLayout` named `verticalLayout` holding, in order, a `QCheckBox` named `checkBoxRecursive` with `text` `Recursive mode` and `toolTip` `Search every folder beneath this folder, at any depth, for a folder named as the torrent or its .torrent file.`, a vertical spacer, and a `QDialogButtonBox` named `buttonBox` with `standardButtons` `QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok`.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Constructor: the initialiser list is `QDialog {parent}` then `m_ui {new Ui::DiscoveryRootOptionsDialog}`, as `WatchedFolderOptionsDialog` allocates its `m_ui`; the body calls `m_ui->setupUi(this)`, checks `checkBoxRecursive` as `options.recursive`, and connects `buttonBox` `accepted` and `rejected` to `accept()` and `reject()`. The destructor deletes `m_ui`.
-        *   `[ ]` `discoveryRootOptions()` → `DiscoveryRootOptions {.recursive = m_ui->checkBoxRecursive->isChecked()}`.
-
-    *   `[ ]` src/gui/`discoveryrootoptionsdialog.cpp`
-        *   `[ ]` New file: the licence header of `watchedfolderoptionsdialog.cpp` naming the contributor, `#include "discoveryrootoptionsdialog.h"`, `#include "ui_discoveryrootoptionsdialog.h"`, and the constructor, the destructor deleting `m_ui`, and `discoveryRootOptions()` per the interaction spec.
-
-    *   `[ ]` src/gui/`CMakeLists.txt`
-        *   `[ ]` Add `discoveryrootoptionsdialog.ui` to `qt_wrap_ui(UI_HEADERS ...)` after `deletionconfirmationdialog.ui`, `discoveryrootoptionsdialog.h` to the headers of `add_library(qbt_gui ...)` after `desktopintegration.h` and before `discoveryrootsmodel.h`, and `discoveryrootoptionsdialog.cpp` to its sources after `desktopintegration.cpp` and before `discoveryrootsmodel.cpp`.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `discoveryrootoptionsdialog` in `src/gui` depends downward on `discoveryroots`. Only `optionsdialog` depends on it.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-3: the per-root dialog carries the recursion flag.
-        *   `[ ]` IF-12: `uic` routes the `.ui` strings through `tr()`.
-        *   `[ ]` BT-2: the three files are registered in `src/gui/CMakeLists.txt`.
-        *   `[ ]` The dialog is verified by the dependency map's manual case for step 19.
-
-*   `[ ]` [UI] src/gui/`optionsdialog` — add the discovery root list `discoveryRootsView`, backed by `DiscoveryRootsModel`, with **Add...**, **Options...** and **Remove** buttons opening `DiscoveryRootOptionsDialog`, inside `groupFindLocation`, applied with the page. T19
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: discovery roots have no desktop control.
-        *   `[ ]` Functional: a list of discovery roots within the **Find location** group, with buttons to add a root through a directory chooser and the per-root dialog, to edit the selected root's options, and to remove the selected root; any change enables **Apply**, and applying writes the list.
-        *   `[ ]` Non-functional: the list and its buttons follow the watched folder list's layout and keyboard behaviour, and are disabled with the group.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/gui`.
-        *   `[ ]` Out of scope: the web interface control, which is the `preferences.html` node.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the view, its three buttons, their handlers, and the model's application. Outside: storage and the model's rules.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/discoveryroots.h` — `DiscoveryRoots::instance()`.
-        *   `[ ]` `discoveryrootsmodel.h` and `discoveryrootoptionsdialog.h` — from the `discoveryrootsmodel` and `discoveryrootoptionsdialog` nodes.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The watched folder list is the model throughout: `scanFoldersView` with `addWatchedFolderButton`, `editWatchedFolderButton` and `removeWatchedFolderButton` in `optionsdialog.ui`; `WatchedFoldersModel` set on the view in `loadDownloadsTabOptions()` with its `dataChanged`, selection and `doubleClicked` connections; the add and remove buttons connected to `enableApplyButton`; `apply()` in `saveDownloadsTabOptions()`; and the auto-connected slots `on_addWatchedFolderButton_clicked()`, `on_editWatchedFolderButton_clicked()` and `on_removeWatchedFolderButton_clicked()` with `handleWatchedFolderViewSelectionChanged()` and `editWatchedFolderOptions()`.
-
-    *   `[ ]` src/gui/`optionsdialog.h`
-        *   `[ ]` In `private slots`, after `void editWatchedFolderOptions(const QModelIndex &index);`, add `void handleDiscoveryRootViewSelectionChanged();` and `void editDiscoveryRootOptions(const QModelIndex &index);`; after `void on_removeWatchedFolderButton_clicked();`, add `void on_addDiscoveryRootButton_clicked();`, `void on_editDiscoveryRootButton_clicked();` and `void on_removeDiscoveryRootButton_clicked();`.
-
-    *   `[ ]` src/gui/`optionsdialog.ui`
-        *   `[ ]` In `groupFindLocationLayout`, after the `<item>` holding `checkFindLocationLeech`, add two `<item>`s in order.
-        *   `[ ]` The first holds `<widget class="QLabel" name="labelDiscoveryRoots">` with property `text` set to `Also search these folders:`.
-        *   `[ ]` The second holds `<layout class="QHBoxLayout" name="discoveryRootsLayout">` containing two `<item>`s in order.
-        *   `[ ]` The first item of `discoveryRootsLayout` holds `<widget class="QTreeView" name="discoveryRootsView">` with, in order, property `sizePolicy` set to `<sizepolicy hsizetype="Expanding" vsizetype="Expanding">` with `horstretch` 0 and `verstretch` 1; property `minimumSize` set to width 250 and height 100; property `selectionMode` set to `QAbstractItemView::SelectionMode::SingleSelection`; property `selectionBehavior` set to `QAbstractItemView::SelectionBehavior::SelectRows`; property `textElideMode` set to `Qt::TextElideMode::ElideNone`; property `rootIsDecorated` set to `false`; attribute `headerDefaultSectionSize` set to 80; and attribute `headerStretchLastSection` set to `false`. It has no `editTriggers` property.
-        *   `[ ]` The second item of `discoveryRootsLayout` holds `<layout class="QVBoxLayout" name="discoveryRootsButtonsLayout">` containing four `<item>`s in order: `<widget class="QPushButton" name="addDiscoveryRootButton">` with `text` `Add...`; `<widget class="QPushButton" name="editDiscoveryRootButton">` with `enabled` `false` and `text` `Options..`; `<widget class="QPushButton" name="removeDiscoveryRootButton">` with `enabled` `false` and `text` `Remove`; and `<spacer name="discoveryRootsSpacer">` with `orientation` `Qt::Orientation::Vertical` and `sizeHint` width 20 and height 40.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Load: after the `scanFoldersView` `doubleClicked` connection, a `DiscoveryRootsModel(DiscoveryRoots::instance(), this)` with `dataChanged` connected to `enableApplyButton`; `discoveryRootsView` header resized to contents and its model set; its selection model's `selectionChanged` connected to `handleDiscoveryRootViewSelectionChanged`; its `doubleClicked` connected to `editDiscoveryRootOptions`.
-        *   `[ ]` Connect: after the `addWatchedFolderButton` connection, `addDiscoveryRootButton` and `removeDiscoveryRootButton` `clicked` connected to `enableApplyButton`.
-        *   `[ ]` Save: after `watchedFoldersModel->apply();`, the `DiscoveryRootsModel` of `discoveryRootsView` → `apply()`.
-        *   `[ ]` `on_addDiscoveryRootButton_clicked()`: `QFileDialog::getExistingDirectory(this, tr("Select folder to search"))` empty → return; otherwise a heap `DiscoveryRootOptionsDialog({}, this)` with `Qt::WA_DeleteOnClose`, whose `accepted` calls `addRoot()` with the directory and `discoveryRootOptions()`, resizes the view's columns and enables **Apply**, a `RuntimeError` showing `QMessageBox::critical(this, tr("Adding entry failed"), err.message())`; then `open()`.
-        *   `[ ]` `on_editDiscoveryRootButton_clicked()` → `editDiscoveryRootOptions()` on the first selected index. `editDiscoveryRootOptions(index)`: invalid → return; otherwise a heap `DiscoveryRootOptionsDialog(model->rootOptions(index.row()), this)` with `Qt::WA_DeleteOnClose`, whose `accepted`, with the index still valid, calls `setRootOptions()` and enables **Apply**; then `open()`.
-        *   `[ ]` `on_removeDiscoveryRootButton_clicked()` → `removeRow()` for each selected index. `handleDiscoveryRootViewSelectionChanged()` → **Remove** enabled with any selection, **Options...** enabled with exactly one.
-
-    *   `[ ]` src/gui/`optionsdialog.cpp`
-        *   `[ ]` Add `#include "base/discoveryroots.h"` after `#include "base/bittorrent/sharelimits.h"`, and `#include "discoveryrootoptionsdialog.h"` then `#include "discoveryrootsmodel.h"` after `#include "banlistoptionsdialog.h"`.
-        *   `[ ]` Add the load, connection and save statements, and define the five slots after `OptionsDialog::editWatchedFolderOptions()`, per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `optionsdialog` depends beside it on `discoveryrootsmodel` and `discoveryrootoptionsdialog`, and downward on `discoveryroots`.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-3: the list opens the per-root dialog for adding and editing.
-        *   `[ ]` IF-12: `uic` routes the `.ui` strings through `tr()`, and every handler string is wrapped in `tr()`.
-        *   `[ ]` ST-3: unchecking `groupFindLocation` disables the list and its buttons and leaves the list as configured.
-        *   `[ ]` The list is verified by the dependency map's manual case for step 19.
-
-*   `[ ]` [UI] src/gui/`unmatchedtorrentsdialog` — add **Search folder...**, taking a directory and running one `Session::findTorrentLocations()` operation over the listed torrents with it as the pointed root, assigning and removing each torrent that matches, repeatable while entries remain. T20
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: a user looking at torrents that matched nothing, and knowing which directory holds them, can only set each location by hand.
-        *   `[ ]` Functional: a button taking one directory and searching it for every listed torrent whose previous search has reported; each torrent found there is assigned its location and leaves the list, each torrent not found stays.
-        *   `[ ]` Functional: the button stays available while entries remain, so a library across several disks is covered one directory at a time.
-        *   `[ ]` Non-functional: the chosen directory is used for that search alone and written nowhere.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/gui`, the dialog the second epic's `unmatchedtorrentsdialog` node adds.
-        *   `[ ]` Out of scope: enumeration and composition, which are the `sessionimpl` and `filesearcher` nodes.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the button, the directory chooser, the torrents awaiting a search outcome, and the hand-off of matches. Outside: discovery and assignment.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/bittorrent/session.h` — `Session::findTorrentLocations()` with its pointed root, from the `sessionimpl` node, and the `torrentLocationFound` signal.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The constructor, `m_torrentIDs`, `removeTorrent()` and the directory dialog are those the second epic's `unmatchedtorrentsdialog` node defines. `TransferListWidget` ignores an outcome for an ID outside its own pending set.
-
-    *   `[ ]` src/gui/`unmatchedtorrentsdialog.h`
-        *   `[ ]` Add `#include <QSet>` after `#include <QList>`, and `class Path;` before the `Ui` namespace.
-        *   `[ ]` Add private `void searchFolder();` and `void handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, bool found);`, and the member `QSet<BitTorrent::TorrentID> m_pendingSearches;`.
-
-    *   `[ ]` src/gui/`unmatchedtorrentsdialog.ui`
-        *   `[ ]` `labelUnmatched`'s `text` becomes `No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.`
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` Constructor: before the **Set location...** button, `m_ui->buttonBox->addButton(tr("Search folder..."), QDialogButtonBox::ActionRole)` with `clicked` connected to `searchFolder`; and `BitTorrent::Session::torrentLocationFound` connected to `handleTorrentLocationFound`.
-        *   `[ ]` `searchFolder()`: a heap `QFileDialog` titled `tr("Choose a folder to search")` in the directory mode and options of the existing directory dialog, with `Qt::WA_DeleteOnClose`, starting at no path. On `accepted` with an existing `Path`, each ID of `m_torrentIDs` not in `m_pendingSearches` is inserted into it and appended to a local `QList<BitTorrent::TorrentID> submitted`; after every insertion, a non-empty `submitted` is passed once to `BitTorrent::Session::instance()->findTorrentLocations(submitted, folder)`, so the folder is listed once for the whole list and an outcome emitted during the call finds its ID already pending. Then `open()`.
-        *   `[ ]` `handleTorrentLocationFound(id, location, found)`: `m_pendingSearches.remove(id)` false → return. `found` true and `m_torrentIDs` holding `id` → `BitTorrent::Session::instance()->assignTorrentLocation(id, location)` then `removeTorrent(id)`; `found` false → the entry stays.
-
-    *   `[ ]` src/gui/`unmatchedtorrentsdialog.cpp`
-        *   `[ ]` Add the constructor statements and define `searchFolder()` and `handleTorrentLocationFound()` per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` The dialog depends downward on `Session` as it already does, and writes nothing to `DiscoveryRoots`.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-10: the list accepts a directory to search, and another while entries remain.
-        *   `[ ]` ST-8: the pointed root reaches only `findTorrentLocations()`.
-        *   `[ ]` EN-6: one **Search folder...** action is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
-        *   `[ ]` IF-11: discovery and assignment are reached through `BitTorrent::Session`.
-        *   `[ ]` IF-12: the button and dialog titles are wrapped in `tr()`.
-        *   `[ ]` The action is verified by the dependency map's manual case for step 20.
-
-*   `[ ]` [UI] src/webui/www/private/`unmatchedtorrents.html` — add **Search folder...**, posting every listed torrent to `torrents/findLocation` with the directory in the path field as `root`, polling until the operation completes, and removing each torrent the answer reports matched, repeatable while entries remain. T25
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: a web interface user looking at torrents that matched nothing, and knowing which directory holds them, can only set each location by hand, while the desktop list searches a chosen directory.
-        *   `[ ]` Functional: a button searching the directory entered in the path field for every listed torrent as one operation; each torrent found there is assigned its location and leaves the list, each torrent not found stays.
-        *   `[ ]` Functional: the button is available again once its search completes while entries remain, so a library across several disks is covered one directory at a time.
-        *   `[ ]` Non-functional: the directory is used for that search alone and written nowhere; the button is a native element reachable by Tab, and its label passes through `QBT_TR`.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/webui/www`, the window the second epic's `unmatchedtorrents.html` node adds.
-        *   `[ ]` Out of scope: enumeration, composition and assignment, which are the `sessionimpl` and `torrentscontroller` nodes.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the button, its request and poll, and removing matched entries. Outside: discovery and assignment.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `torrents/findLocation` with `root`, from this epic's `torrentscontroller` node.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The option list `unmatchedTorrents`, the path field `unmatchedLocation`, `error_div`, **Set location...**, the close behaviour and the label `unmatchedLabel` are those the second epic's `unmatchedtorrents.html` node defines. `torrents/findLocation` answers HTTP 202 while any torrent is pending and HTTP 200 with `matched` and `unmatched` once none is, and a request without `hashes` registers nothing.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` **Search folder...**: no option → return. An empty trimmed path → write the empty-path message into `error_div` and return. Otherwise disable the button, clear `error_div`, and post `hashes` holding every option's `value` joined by `|` and `root` holding the path to `api/v2/torrents/findLocation`.
-        *   `[ ]` Each response: not ok → write its text into `error_div` and enable the button. HTTP 202 → one second later, post to `api/v2/torrents/findLocation` without `hashes` and handle that response the same way. HTTP 200 → remove every option whose `value` the answer's `matched` names by `hash`, enable the button, and close the window when no option remains, or else select the first option and write its save path into the field. An option named by neither list stays.
-
-    *   `[ ]` src/webui/www/private/`unmatchedtorrents.html`
-        *   `[ ]` Before `setLocationButton`, add `<input type="button" value="QBT_TR(Search folder...)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="searchFolderButton">`.
-        *   `[ ]` `unmatchedLabel`'s text becomes `QBT_TR(No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]`, the desktop dialog's string.
-        *   `[ ]` Add the handler per the interaction spec.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` The page consumes the WebAPI alone and writes nothing to the discovery root list.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-10: the web interface list accepts a directory to search, and another while entries remain.
-        *   `[ ]` IF-20: **Search folder...** posts the listed torrents with the entered directory as `root`.
-        *   `[ ]` ST-8: the directory reaches only the request.
-        *   `[ ]` IF-12: the button and label pass through `QBT_TR`.
-        *   `[ ]` BT-9: `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
-        *   `[ ]` Verify the action through the dependency map's manual case for step 25 and Epic 3 integration scenario 10 at the commit boundary.
-
-*   `[ ]` [API] src/webui/api/`appcontroller` — expose `find_location_discovery_roots` on `app/preferences` and `app/setPreferences` as an array of objects carrying `path` and `recursive`, returned in the WebAPI's native path form and received through `parseDiscoveryRoots()`. T21
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the discovery root list is reachable only from the desktop dialog.
-        *   `[ ]` Functional: `app/preferences` returns the list in configured order; `app/setPreferences` replaces it when its key is present, dropping invalid entries, and leaves it untouched when absent.
-
-    *   `[ ]` `role`
-        *   `[ ]` WebAPI controller in `src/webui/api`.
-        *   `[ ]` Out of scope: the web page and the changelog, which are their own nodes; `API_VERSION`, which the maintainers set.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: one key in two actions and the key's outgoing path form. Outside: the receiving JSON rules, which the `discoveryroots` node owns.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `base/discoveryroots.h` — `DiscoveryRoots::instance()`, `roots()`, `setRoots()` and `parseDiscoveryRoots()`.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `preferencesAction()` builds `QJsonObject data`, and `appcontroller.cpp` already includes `<QJsonArray>`. `setPreferencesAction()` reads the request through `QJsonDocument::fromJson(...).toVariant().toHash()`, so a JSON array arrives as a `QVariantList`, and tests keys with `hasKey`. The second epic's `find_location_leech_enabled` statements are the anchor.
-        *   `[ ]` WebAPI path values are written with `Path::toString()`, as `scan_dirs` writes each watched folder; persisted configuration is written with `Path::data()`, as `serializeDiscoveryRoots()` writes `discovery_roots.json`. The persistence serializer is therefore not the WebAPI serializer.
-
-    *   `[ ]` src/webui/api/`appcontroller.cpp`
-        *   `[ ]` Add `#include "base/discoveryroots.h"` after `#include "base/bittorrent/session.h"`.
-        *   `[ ]` In `preferencesAction()`, after the `find_location_leech_enabled` line, build a local `QJsonArray discoveryRoots` holding, for each `DiscoveryRoot` of `DiscoveryRoots::instance()->roots()` in order, `QJsonObject {{u"path"_s, root.path.toString()}, {u"recursive"_s, root.options.recursive}}`, then `data[u"find_location_discovery_roots"_s] = discoveryRoots;`.
-        *   `[ ]` In `setPreferencesAction()`, after the `find_location_leech_enabled` branch, add `if (hasKey(u"find_location_discovery_roots"_s))` followed by `DiscoveryRoots::instance()->setRoots(parseDiscoveryRoots(QJsonArray::fromVariantList(it.value().toList())));`. `Path` normalises each received string, so native and generic separators both parse; an unchanged list writes and emits nothing through `setRoots()`.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` `appcontroller` depends downward on `discoveryroots` in `src/base`.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-4: the discovery root list is exposed on both endpoints.
-        *   `[ ]` CN-5: a request omitting the key leaves the list unchanged.
-        *   `[ ]` On Windows, `app/preferences` returns each discovery root path in the native form it returns for `save_path` and the `scan_dirs` keys, and `discovery_roots.json` holds the `Path::data()` form, verified at the Epic 3 commit boundary.
-        *   `[ ]` A root set through the WebAPI appears in the options dialog list through `rootsChanged`, verified by the dependency map's manual case for step 21.
-
-*   `[ ]` [UI] src/webui/www/private/views/`preferences.html` — add the `discovery_roots_tab` table and an **Add...** button to the **Find location** fieldset, one row per root holding its path, a recursion checkbox and a **Remove** button, loaded from and saved to `find_location_discovery_roots`. T21
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: the discovery root list has no control in the web interface.
-        *   `[ ]` Functional: a table listing each root's path with its recursion flag in configured order; **Add...** appends an empty row and focuses its path; each row's **Remove** deletes that row and leaves the others in order; saving sends every row with a non-empty path, in row order.
-        *   `[ ]` Functional: the path inputs, checkboxes, **Remove** buttons and **Add...** are disabled while the legend checkbox is unchecked, and the rows' values are still sent, so disabling the group erases nothing.
-        *   `[ ]` Non-functional: every control is a native, keyboard-operable element with an accessible name, reached by Tab in row order with **Add...** after the table; the column titles use the translation contexts of the desktop model and dialog.
-
-    *   `[ ]` `role`
-        *   `[ ]` Presentation in `src/webui/www`.
-        *   `[ ]` Out of scope: validation of entries, which `parseDiscoveryRoots()` performs on receipt.
-
-    *   `[ ]` `module`
-        *   `[ ]` Inside: the table, the **Add...** button, the row builder, the reader, the enablement of the new controls, and the load and save statements. Outside: the list's rules.
-
-    *   `[ ]` `deps`
-        *   `[ ]` `app/preferences`, returning `find_location_discovery_roots` from the `appcontroller` node; `app/setPreferences`, receiving it.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` `watched_folders_tab` supplies the table's markup form, `<table style="border: 1px solid black;">` with a `thead`. Its script is not followed: `addWatchFolder()` interpolates the folder into markup, adds rows through a clickable image, and addresses rows by positional IDs that a removal would break. The discovery root rows are built with DOM elements and read by walking the `tbody` rows, so they need no `HtmlTable` and no positional ID. The earlier epics' `preferences.html` nodes define the fieldset and `updateFindLocationEnabled`, and the object `exports` returns publishes handlers named in `onclick` attributes.
-
-    *   `[ ]` `interaction.spec`
-        *   `[ ]` `addDiscoveryRoot(path = "", recursive = false)` appends to the `tbody` of `discovery_roots_tab` one `tr` of three `td`s built with `document.createElement`: an `input` with `type` `text` and `aria-label` `"QBT_TR(Discovery root)QBT_TR[CONTEXT=DiscoveryRootsModel]"`, whose `value` property is set to `path`; an `input` with `type` `checkbox` and `aria-label` `"QBT_TR(Recursive mode)QBT_TR[CONTEXT=DiscoveryRootOptionsDialog]"`, whose `checked` property is set to `recursive`; and a `button` with `type` `button` and `textContent` `"QBT_TR(Remove)QBT_TR[CONTEXT=OptionsDialog]"`, whose `click` listener removes its row and then focuses `addDiscoveryRootButton`. Each of the three is disabled unless `findLocationCheckbox` is checked. It returns the text input.
-        *   `[ ]` `addEmptyDiscoveryRoot()` calls `addDiscoveryRoot()` and focuses the returned input.
-        *   `[ ]` `getDiscoveryRoots()`: for each `tr` of the `tbody` in order whose text input's trimmed `value` is non-empty, `{ path, recursive }` from that value and the checkbox's `checked`, read whether or not the controls are disabled; returns the array.
-        *   `[ ]` `updateFindLocationEnabled()` additionally sets `disabled` to the negation of the group state on every element matched by `#discovery_roots_tab input, #discovery_roots_tab button, #addDiscoveryRootButton`.
-
-    *   `[ ]` src/webui/www/private/views/`preferences.html`
-        *   `[ ]` Markup: in the **Find location** fieldset, after the `formRow` holding `findLocationLeechCheckbox`, add `<table id="discovery_roots_tab" style="border: 1px solid black;">` with a `thead` row of `<th scope="col">QBT_TR(Discovery root)QBT_TR[CONTEXT=DiscoveryRootsModel]</th>` and `<th scope="col">QBT_TR(Recursive mode)QBT_TR[CONTEXT=DiscoveryRootOptionsDialog]</th>` and an empty `tbody`, then `<button type="button" id="addDiscoveryRootButton" onclick="qBittorrent.Preferences.addEmptyDiscoveryRoot();">QBT_TR(Add...)QBT_TR[CONTEXT=OptionsDialog]</button>`.
-        *   `[ ]` Script: after `getWatchedFolders`, define `addDiscoveryRoot`, `addEmptyDiscoveryRoot` and `getDiscoveryRoots` per the interaction spec; extend `updateFindLocationEnabled` per the interaction spec; after `addWatchFolder: addWatchFolder,` in `exports`, add `addEmptyDiscoveryRoot: addEmptyDiscoveryRoot,`.
-        *   `[ ]` Load: after the `findLocationLeechCheckbox` load and before the `updateFindLocationEnabled();` call, `for (const root of pref.find_location_discovery_roots)` calls `addDiscoveryRoot(root.path, root.recursive);`. No trailing empty row is added.
-        *   `[ ]` Save: after the `find_location_leech_enabled` statement, `settings["find_location_discovery_roots"] = getDiscoveryRoots();`.
-
-    *   `[ ]` `directionality`
-        *   `[ ]` The page consumes the WebAPI and adds no dependency beyond the key the `appcontroller` node provides.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-5: the discovery root list has a control on the web interface preferences page.
-        *   `[ ]` IF-12: both column titles, both accessible names and both button texts are wrapped in `QBT_TR`, in the contexts of the desktop strings they repeat.
-        *   `[ ]` A path is written to its input through the `value` property, never interpolated into markup.
-        *   `[ ]` ST-3: unchecking the legend checkbox disables every discovery root control and leaves each row's values in the saved settings.
-        *   `[ ]` Keyboard: Tab reaches each row's path, checkbox and **Remove** in row order and then **Add...**; Space and Enter operate both buttons; **Add...** moves focus to the new path and **Remove** moves it to **Add...**; disabled controls are skipped.
-        *   `[ ]` Adding, removing a middle row, and saving send the remaining rows in their displayed order.
-        *   `[ ]` The `CI - WebUI` workflow's `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
-        *   `[ ]` The page is verified by the dependency map's manual case for step 21 and the WebUI case at the Epic 3 commit boundary.
-
-*   `[ ]` [DOCS] `WebAPI_Changelog` — record `find_location_discovery_roots` on `app/preferences` and `app/setPreferences`, and the `root` parameter of `torrents/findLocation`, under the version heading at the top of the file. T21, T25
-
-    *   `[ ]` `objective`
-        *   `[ ]` Problem: WebAPI clients learn of new preference keys and parameters from this file, and one key joins both preference endpoints while one parameter joins `torrents/findLocation`.
-        *   `[ ]` Functional: add one entry under the version heading at the top of the file when the branch is rebased, linking this submission's pull request, naming the key and its shape on both endpoints, and naming the parameter. Leave `API_VERSION` and the version headings unchanged; any version decision is the maintainers'.
-
-    *   `[ ]` `context_slice`
-        *   `[ ]` The entries the first and second epics' `WebAPI_Changelog` nodes add are the wording model. Entries under a heading run newest first.
-
-    *   `[ ]` `WebAPI_Changelog.md`
-        *   `[ ]` Under the heading at the top of the file, before its first entry, insert the entry below, separated from its neighbours as the existing entries are.
-        *   `[ ]` The entry is a top-level bullet linking the pull request, `* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)`, where `<number>` is the number GitHub assigns when this submission's pull request is opened.
-        *   `[ ]` Under it, the indented bullet ``* `app/preferences` endpoint includes `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option``.
-        *   `[ ]` Under it, the indented bullet ``* `app/setPreferences` endpoint allows to set `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option``.
-        *   `[ ]` Under it, the indented bullet ``* `torrents/findLocation` endpoint accepts optional parameter `root` (string), an existing directory searched ahead of every other root for the torrents that request registers``.
-
-    *   `[ ]` `requirements`
-        *   `[ ]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the key and parameter it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
-        *   `[ ]` The file passes the `rumdl` pre-commit hook.
-
-*   `[ ]` **Commit** `Search discovery roots and pointed folders`
-    *   `[ ]` Structural: `DiscoveryRootOptions`, `DiscoveryRoot`, `DiscoveryRoots`, `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`; `SubdirectoryMap` and `enumerateSubdirectories()`; `candidateRoots()` taking optional subdirectory maps holding every directory per name; `Session::findTorrentLocations()` taking torrent IDs and a pointed root; `SessionImpl::SearchOperation` and `SessionImpl::createSearchOperation()`; `DiscoveryRootsModel` and `DiscoveryRootOptionsDialog`; the discovery root list in the options dialog and web interface; **Search folder...** in the desktop and web interface unmatched lists; the `root` parameter of `torrents/findLocation`; two test executables and their fixtures.
-    *   `[ ]` Behavioural: every operation composes a pointed root, then the discovery roots in configured order, then the watched folder save paths, walking every directory beneath recursive roots and the pointed root once per operation and matching each torrent's name and source name against that listing at any depth, each directory found contributing its parent then itself; automatic additions share an unchanged add operation while it is in flight and otherwise each form their own, and a transfer-list invocation, a `torrents/findLocation` request or a **Search folder...** action is one batch operation; the log names the exact root that produced each found location; the desktop and web interface unmatched lists search a chosen folder for their entries, and a `torrents/findLocation` request searches the folder its `root` names; every mode is offered by the desktop interface, the web interface and the WebAPI alike.
-    *   `[ ]` Contract: `candidateRoots()` callers supplying no maps behave as before; `findTorrentLocation()` keeps its declaration and outcomes; `app/preferences` and `app/setPreferences` gain `find_location_discovery_roots` and `torrents/findLocation` gains `root`, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged; a request without `root` behaves as the second epic defines.
-    *   `[ ]` **Integration scenario 1 — batch enumeration:** configure one recursive discovery root holding one content folder per torrent, one directly beneath the root and the others beneath one and two determinant folders, and watch directory listings of that tree with `inotifywait -m -r -e open` on Linux or Process Monitor's `QueryDirectory` events on Windows. Run **Find location** over three torrents, post `torrents/findLocation` naming three torrents, then **Search folder...** on that root with three unmatched entries; confirm each operation lists each directory of the discovery root's tree once and each directory of the pointed root's tree once, and each torrent's outcome is still reported and assigned as its own search completes. Add one torrent; confirm that addition lists each directory of the root's tree once.
-    *   `[ ]` **Integration scenario 2 — overlapping origins:** configure a watched folder save path `W`, a discovery root `W/library` and a discovery root `W/library/sub`, and point **Search folder...** at `W/library`. With content placed where only the pointed root's candidates reach it, only a discovery root's candidates reach it, and only the watched folder's candidates reach it, confirm the log names the pointed root, that exact discovery root and the watched folder save path respectively, and never a nested root that merely contains the winner.
-    *   `[ ]` **Integration scenario 3 — persistence:** configure at least two roots in a meaningful order with different recursion flags; apply, exit normally, restart, and confirm the exact paths, order and flags in the options dialog and in `app/preferences`. Remove one root and change another's flag, restart again, and confirm the change persisted.
-    *   `[ ]` **Integration scenario 4 — absent and malformed files:** start with no `discovery_roots.json` and confirm the list is empty and no warning is logged. Then start with malformed JSON, and again with a JSON object at the top level; each time confirm the application remains usable, the list is empty, and the expected warning is logged.
-    *   `[ ]` **Integration scenario 5 — unchanged writes:** with roots configured and one selected in the options dialog, change and apply an unrelated Downloads setting; confirm `discovery_roots.json`'s modification time is unchanged and the list keeps its selection, so the model was not reset. Send `app/setPreferences` with an unchanged `find_location_discovery_roots` and confirm the same.
-    *   `[ ]` **Integration scenario 6 — path forms:** on Windows, confirm `app/preferences` returns each discovery root path with the same separators as `save_path` and the `scan_dirs` keys, that sending those values back leaves the list unchanged, and that `discovery_roots.json` holds each path in its `Path::data()` form.
-    *   `[ ]` **Integration scenario 7 — web interface:** add three roots, remove the middle one, and save; confirm the remaining two are returned in order. Uncheck the legend checkbox; confirm every discovery root control and **Add...** are disabled and skipped by Tab, and that saving keeps the list. Operate **Add...** and **Remove** by keyboard alone and confirm focus moves as specified.
-    *   `[ ]` **Integration scenario 8 — automatic addition burst:** configure one recursive discovery root holding one content folder per torrent at varying depths, watch its directory listings as in scenario 1, and drop a batch of `.torrent` files into a watched folder while that root is being walked; confirm each directory of the root's tree is listed once for the additions arriving during that walk, and that each of those torrents whose content folder sits in the tree is found through the listing.
-    *   `[ ]` **Integration scenario 9 — structured volume:** configure a recursive discovery root `V` holding a multi-file torrent's content at `V/someDeterminant/someOtherDeterminant/contentFolder/content`, a single-file torrent's file at `V/Category/Stem/Stem.ext` where `Stem.ext` is the torrent's file and the torrent is added under the Original content layout, and two copies of a third torrent's folder, named `Disc 1`, at `V/A/Disc 1` holding one of its files and `V/B/Disc 1` holding all of them. Add a hidden directory and a symbolic link on Linux, or a junction on Windows, inside `V` pointing at `V`. Add the three torrents in manual mode; confirm the first resolves to `V/someDeterminant/someOtherDeterminant`, the second to `V/Category/Stem`, and the third to `V/B`, each logged as found in the discovery root `V`, each completing its check without transferring content. Confirm with the listing watch from scenario 1 that the walk finishes, lists each real directory once, and neither lists nor enters the hidden directory, the link or the junction.
-    *   `[ ]` **Integration scenario 10 — pointed root through the WebAPI and web interface:** with three torrents whose content sits only beneath a directory `P` that is neither a discovery root nor a watched folder save path, run **Find location** in the web interface and confirm `unmatchedtorrents.html` lists all three. Enter a directory holding none of them and use **Search folder...**; confirm the button is disabled until the search completes and all three stay. Enter `P` and use **Search folder...**; confirm, with the listing watch from scenario 1, that `P`'s tree is listed once, that each torrent is assigned, logged as found in the pointed root `P` and removed, and that the window closes. Repeat with the content split across `P` and a second directory `Q`, searching `P` then `Q`, and confirm the list shrinks at each step. Post `torrents/findLocation` naming the three torrents with `root` set to `P` and confirm the same assignments; with `root` naming a missing directory, confirm HTTP 409 and no search. Confirm `P` appears in neither `discovery_roots.json` nor `app/preferences`.
-    *   `[ ]` Commit after the manual cases for steps 19 through 22 and 25 and the ten integration scenarios pass, the Epic 2 integration scenarios still pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
+*   `[X]` [BE] src/base/`discoveryroots` — add `DiscoveryRootOptions`, `DiscoveryRoot`, the `DiscoveryRoots` singleton holding an ordered list of roots, empty by default and persisted to `discovery_roots.json` as a JSON array holding one object per root, and the `parseDiscoveryRoots()` and `serializeDiscoveryRoots()` pair. T16
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the search reaches only paths the application already knows, so content held under a directory the user knows but has configured nowhere is never found.
+        *   `[X]` Functional: hold an ordered list of discovery roots, each a directory with its own options, of which recursion is one, preserving the order the user configured.
+        *   `[X]` Functional: persist the list across sessions as a JSON array of objects, each carrying `path` and `recursive`; load it at construction and write it when the list changes; start empty where no file exists.
+        *   `[X]` Functional: convert between the list and its JSON form in one place, dropping an entry that is not an object, whose path is empty or relative, or whose path repeats an earlier entry.
+        *   `[X]` Non-functional: the conversion reads no singleton and writes no log, so it is covered by a `qbt_base` test.
+
+    *   `[X]` `role`
+        *   `[X]` Settings storage in `src/base`, a singleton whose lifetime `Application` owns, read by `sessionimpl` and presented by `discoveryrootsmodel` and `appcontroller`.
+        *   `[X]` Out of scope: enumerating a root, which is the `filesearcher` node; composing roots into a search, which is the `sessionimpl` node; checking that a directory exists or is readable, which the desktop model does before accepting an entry.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the root types, the ordered list, its JSON form, and its file. Outside: what the roots are searched for, and how they are edited.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/path.h` — `Path`, `Path::isEmpty()`, `Path::isRelative()`, `Path::data()` and `operator==`. A lower layer, depended on inward.
+        *   `[X]` `base/profile.h` — `specialFolderLocation(SpecialFolder::Config)`.
+        *   `[X]` `base/utils/io.h` — `Utils::IO::readFile()`, `Utils::IO::ReadError::NotExist` and `Utils::IO::saveToFile()`.
+        *   `[X]` `base/logger.h` — `LogMsg()` and `Log::WARNING`, from `load()` and `store()` only.
+        *   `[X]` `base/global.h` — the `_s` literal.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `TorrentFilesWatcher` is the model: `initInstance()`, `freeInstance()` and `instance()` over a static `m_instance`; a private constructor calling `load()`; `load()` reading `specialFolderLocation(SpecialFolder::Config) / Path(CONF_FILE_NAME)` through `Utils::IO::readFile()` with a 10 MiB limit and logging a warning on a read error other than `NotExist`, a parse error or a wrong document type; `store()` writing `QJsonDocument(...).toJson()` through `Utils::IO::saveToFile()` and logging a warning on failure; and the option key constant `OPTION_RECURSIVE`.
+        *   `[X]` `TorrentFilesWatcher` keys its JSON object by folder path, which `QJsonObject` holds in sorted order; the discovery root list is ordered by the user, so it is held as a JSON array.
+
+    *   `[X]` src/base/`discoveryroots.h`
+        *   `[X]` New file: the licence header of `torrentfileswatcher.h` naming the contributor, `#pragma once`, `#include <QList>` and `#include <QObject>`, then `#include "base/path.h"`, with `class QJsonArray;` forward-declared.
+        *   `[X]` `struct DiscoveryRootOptions` declaring `bool recursive = false;` and a defaulted equality operator.
+        *   `[X]` `struct DiscoveryRoot` declaring in order `Path path;` and `DiscoveryRootOptions options;`, and a defaulted equality operator. Equality exists so an unchanged list can be rejected before persistence or notification.
+        *   `[X]` `class DiscoveryRoots final : public QObject` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRoots)`, declaring public `static void initInstance();`, `static void freeInstance();`, `static DiscoveryRoots *instance();`, `QList<DiscoveryRoot> roots() const;` and `void setRoots(const QList<DiscoveryRoot> &roots);`; signal `void rootsChanged();`; private `explicit DiscoveryRoots(QObject *parent = nullptr);`, `void load();`, `void store() const;`, `static DiscoveryRoots *m_instance;` and `QList<DiscoveryRoot> m_roots;`.
+        *   `[X]` After the class: `QList<DiscoveryRoot> parseDiscoveryRoots(const QJsonArray &jsonArray);` and `QJsonArray serializeDiscoveryRoots(const QList<DiscoveryRoot> &roots);`.
+
+    *   `[X]` `construction`
+        *   `[X]` `initInstance()` constructs the one instance when none exists, and the constructor calls `load()`, so `instance()` returns a complete list from its first call. `freeInstance()` deletes it and resets `m_instance`.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `parseDiscoveryRoots(jsonArray)`: for each value in order, not an object → dropped; `Path(object.value(OPTION_PATH).toString())` empty or relative → dropped; a path already in the result by `operator==` → dropped; otherwise appended as `DiscoveryRoot {.path = path, .options = {.recursive = object.value(OPTION_RECURSIVE).toBool()}}`.
+        *   `[X]` `serializeDiscoveryRoots(roots)`: one object per root in order, `{{OPTION_PATH, root.path.data()}, {OPTION_RECURSIVE, root.options.recursive}}`.
+        *   `[X]` `load()`: the file absent → `m_roots` stays empty, silently; any other read error → a warning naming the error; a parse error → a warning naming the path and the error; a document that is not an array → a warning naming the path; otherwise `m_roots = parseDiscoveryRoots(document.array())`.
+        *   `[X]` `setRoots(roots)`: `roots == m_roots` → return without writing or emitting; otherwise `m_roots = roots`, then `store()`, then `emit rootsChanged()`.
+        *   `[X]` `store()`: writes `QJsonDocument(serializeDiscoveryRoots(m_roots)).toJson()`; a failed write → a warning naming the path and the error.
+
+    *   `[X]` test/`testdiscoveryroots.cpp`
+        *   `[X]` New file proving `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`. Until the implementation element exists it fails to link with an unresolved symbol for each, and that link failure is its red state.
+        *   `[X]` Form as the first epic's `testbittorrentfilesearcher.cpp`, with `class TestDiscoveryRoots`, includes `<QJsonArray>`, `<QJsonObject>`, `<QObject>`, `<QTest>`, `"base/discoveryroots.h"`, `"base/global.h"` and `"base/path.h"`, and no fixture. Paths are `/music` and `/video`.
+        *   `[X]` `testRoundTripPreservesOrderAndOptions` — roots `/video` recursive, `/music` not recursive → serialised then parsed, the same two roots in the same order with the same flags.
+        *   `[X]` `testSerializedShape` — `/music` recursive → a one-element array whose object holds `path` `/music` and `recursive` `true` and no other key.
+        *   `[X]` `testRecursiveDefaultsFalse` — an object holding `path` `/music` alone → one root, not recursive.
+        *   `[X]` `testEmptyPathDropped` — objects with `path` empty and `/music` → `/music` alone.
+        *   `[X]` `testRelativePathDropped` — objects with `path` `music` and `/video` → `/video` alone.
+        *   `[X]` `testNonObjectDropped` — the string `/music` then an object with `path` `/video` → `/video` alone.
+        *   `[X]` `testDuplicateKeepsFirst` — `/music` recursive then `/music` not recursive → one root, recursive.
+        *   `[X]` `testValueEquality` — two roots with the same path and options compare equal, and changing either the path or recursion flag makes them unequal. The storage-level no-op is verified manually because constructing `DiscoveryRoots` also reaches the profile and filesystem.
+
+    *   `[X]` test/`CMakeLists.txt`
+        *   `[X]` Add `testdiscoveryroots.cpp` to `testFiles` after `testconceptsstringable.cpp` and before `testglobal.cpp`.
+
+    *   `[X]` src/base/`discoveryroots.cpp`
+        *   `[X]` New file: the licence header of `torrentfileswatcher.cpp` naming the contributor, `#include "discoveryroots.h"`, then `#include <QJsonArray>`, `#include <QJsonDocument>`, `#include <QJsonObject>` and `#include <QJsonParseError>`, then `#include "base/global.h"`, `#include "base/logger.h"`, `#include "base/profile.h"` and `#include "base/utils/io.h"`.
+        *   `[X]` File-scope constants `const QString CONF_FILE_NAME = u"discovery_roots.json"_s;`, `const QString OPTION_PATH = u"path"_s;` and `const QString OPTION_RECURSIVE = u"recursive"_s;`, then `DiscoveryRoots *DiscoveryRoots::m_instance = nullptr;`.
+        *   `[X]` Define the singleton functions, the constructor, `roots()`, `setRoots()`, `load()`, `store()`, `parseDiscoveryRoots()` and `serializeDiscoveryRoots()` per the construction element and the interaction spec, each warning written with `tr()` and `LogMsg(..., Log::WARNING)`.
+
+    *   `[X]` src/base/`CMakeLists.txt`
+        *   `[X]` Add `discoveryroots.h` to the headers of `add_library(qbt_base ...)` after `digest32.h`, and `discoveryroots.cpp` to its sources after `bittorrent/trackerentrystatus.cpp` and before `exceptions.cpp`.
+
+    *   `[X]` `directionality`
+        *   `[X]` `discoveryroots` depends inward on `path`, `profile`, `utils/io`, `logger` and `global`, and on nothing in `src/base/bittorrent`, so `sessionimpl` depends on it without a cycle.
+
+    *   `[X]` `requirements`
+        *   `[X]` EN-1, ST-5: each root is a JSON object carrying `recursive`, proven by `testSerializedShape` and `testRoundTripPreservesOrderAndOptions`.
+        *   `[X]` ST-6: with no file, `roots()` is empty.
+        *   `[X]` ST-7: `DiscoveryRoots` is a singleton with `initInstance()` and `freeInstance()`, called by the `application` node.
+        *   `[X]` CR-3: the configured order survives persistence, proven by `testRoundTripPreservesOrderAndOptions`.
+        *   `[X]` BT-1: both files are registered in `src/base/CMakeLists.txt`.
+        *   `[X]` BT-3: `testdiscoveryroots.cpp` is registered in `testFiles`.
+        *   `[X]` `load()` and `store()` reach `specialFolderLocation()` and `LogMsg()`, which no `qbt_base` test initialises, so persistence to disk is verified by the explicit restart and malformed-file cases at the Epic 3 commit boundary.
+        *   `[X]` Applying another Downloads setting while the discovery root list is unchanged performs no discovery-root write and emits no `rootsChanged()` signal, verified at the Epic 3 commit boundary.
+
+*   `[X]` [BE] src/app/`application` — call `DiscoveryRoots::initInstance()` before `BitTorrent::Session::initInstance()` and `DiscoveryRoots::freeInstance()` after `BitTorrent::Session::freeInstance()`, so the list outlives every session read of it. T16
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: `SessionImpl` reads the discovery root list whenever it composes a search, so the list must exist for the session's whole lifetime.
+        *   `[X]` Functional: the singleton is constructed before the session and destroyed after it.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `Application` calls `BitTorrent::Session::initInstance()` directly after `Net::DownloadManager::initInstance()`, and `TorrentFilesWatcher::initInstance()` later, inside the handler connected to `Session::restored`; it calls `BitTorrent::Session::freeInstance()` after `TorrentFilesWatcher::freeInstance()`. `SessionImpl` can reach `findExistingContent()` from `TorrentImpl::handleSaveResumeData()` for any torrent it holds, from construction to destruction, so the discovery root list is constructed before the session and destroyed after it rather than beside the watcher.
+
+    *   `[X]` src/app/`application.cpp`
+        *   `[X]` Add `#include "base/discoveryroots.h"` after `#include "base/bittorrent/torrent.h"`.
+        *   `[X]` Add `DiscoveryRoots::initInstance();` after `Net::DownloadManager::initInstance();` and before `BitTorrent::Session::initInstance();`.
+        *   `[X]` Add `DiscoveryRoots::freeInstance();` after `BitTorrent::Session::freeInstance();`.
+
+    *   `[X]` `requirements`
+        *   `[X]` ST-7: `Application` owns the singleton's lifetime.
+        *   `[X]` `DiscoveryRoots::instance()` is non-null throughout the session's lifetime, verified by the dependency map's manual case for step 22.
+
+*   `[X]` [BE] src/base/bittorrent/`filesearcher` — add `SubdirectoryMap` and `enumerateSubdirectories()`, walking every directory beneath a root into a map from case-folded name to every directory bearing it, and give `candidateRoots()` a trailing list of optional maps, so a search root with a map contributes, for each directory named for the torrent or its `.torrent` file at any depth, that directory's parent then the directory. T17, T18
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the root form, name form and source form reach only content folders directly beneath a search root or one folder below it. On a volume structured as `volume/someDeterminant/someOtherDeterminant/contentFolder/content`, every probe stops at `volume/someDeterminant`, and searching such a tree by probing would need a probe of every directory for every torrent.
+        *   `[X]` Functional: walk every directory beneath a root once, at any depth, into a map from subdirectory name to every directory bearing that name, ordered by `Path::data()`, folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`. Hidden directories, symbolic links and junctions are neither listed nor entered.
+        *   `[X]` Functional: a search root supplied with a map contributes the root form; then, for each directory the map holds under the torrent's name and then under the source name, the directory's parent followed by the directory. The parent is where a torrent whose declared paths begin with its own folder is found, and the directory is where a single-file torrent or content nested in a folder of the torrent's name is found. A search root supplied without a map contributes the three forms it does now.
+        *   `[X]` Non-functional: a root that cannot be listed yields an empty map and fails nothing, and a directory beneath it that cannot be listed contributes nothing beneath it while its siblings are walked; calls supplying no maps behave as they do now.
+
+    *   `[X]` `role`
+        *   `[X]` Domain logic in `src/base/bittorrent`, run on the session I/O thread.
+        *   `[X]` Out of scope: deciding which roots are enumerated, and holding or discarding a map, which the `sessionimpl` node does.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: walking a directory tree, folding names, and serving parent and directory candidates from a map. Outside: where roots and maps come from.
+
+    *   `[X]` `deps`
+        *   `[X]` `<QDir>`, `<QDirIterator>` and `<QFileInfo>` — a non-recursive `QDirIterator` per directory over `QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks`, `QDirIterator::nextFileInfo()` and `QFileInfo::isJunction()`, available from the Qt 6.6 minimum the build requires. `TorrentFilesWatcher::Worker::processFolder()` recurses into every subdirectory of a recursive watched folder, and this walk reaches the same depth.
+        *   `[X]` `<algorithm>` — `std::ranges::sort`, ordering each map value by `Path::data()`.
+        *   `[X]` `base/path.h` — `Path::filename()`, `Path::parentPath()` and `Path::CASE_SENSITIVITY`.
+        *   `[X]` `<QHash>` and `<optional>` — the map and its per-root presence.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The first epic's `filesearcher` node defines `candidateRoots()`, its containment check, its deduplication through `QList::contains`, and `testbittorrentcandidateroots.cpp`. `SubdirectoryMap` is keyed on `QString` because `qHash(const Path &, std::size_t)` hashes the unfolded string while `operator==` compares through `Path::CASE_SENSITIVITY`.
+
+    *   `[X]` src/base/bittorrent/`filesearcher.h`
+        *   `[X]` Add `#include <optional>` to a standard library group ahead of the Qt group, and `#include <QHash>` to the Qt group before `#include <QObject>`.
+        *   `[X]` Before `struct FileSearchResult`, add `using SubdirectoryMap = QHash<QString, PathList>;`.
+        *   `[X]` The `candidateRoots()` declaration gains the trailing parameter `const QList<std::optional<SubdirectoryMap>> &subdirectoryMaps = {}`.
+        *   `[X]` After it, declare `SubdirectoryMap enumerateSubdirectories(const Path &root);`.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `foldedName(name)`, new in the anonymous namespace: `name.toCaseFolded()` where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and `name` otherwise.
+        *   `[X]` `enumerateSubdirectories(root)`: `root` empty → an empty map, since `QDirIterator` over an empty path lists the working directory. Otherwise a breadth-first walk over `PathList pending {root}`, indexed by `for (qsizetype i = 0; i < pending.size(); ++i)` with `const Path directory = pending.at(i);` copied before any append. Each `directory` is listed by `QDirIterator iter {directory.data(), (QDir::Dirs | QDir::NoDotAndDotDot | QDir::NoSymLinks)}`, without `QDirIterator::Subdirectories`. For each `const QFileInfo info = iter.nextFileInfo();`, an entry for which `info.isJunction()` holds is skipped; otherwise `const Path subdirectory {info.filePath()}` is appended to `map[foldedName(subdirectory.filename())]` and to `pending`. After the walk, each value of the map is sorted with `std::ranges::sort(paths, {}, &Path::data)`.
+        *   `[X]` The filter omits `QDir::Hidden` and carries `QDir::NoSymLinks`, and the junction test runs on the same entry, so a hidden directory, a symbolic link and a junction are neither listed nor appended to `pending`, and the walk never enters them. The walk is explicit so that these tests govern descent as well as listing. A root or a directory beneath it that does not exist or cannot be read lists no entry, and the walk continues with the rest of `pending`. The root itself is never an entry.
+        *   `[X]` `candidateRoots()`: the search root at index `i` of `searchRoots` takes `subdirectoryMaps.value(i)`; empty-entry substitution of `defaultSavePath` is unchanged. Without a map it contributes the root form, name form and source form as before.
+        *   `[X]` With a map it contributes the root form; then, when `hasName`, for each `hit` of `map->value(foldedName(nameForm.data()))` in order, `hit.parentPath()` then `hit`; then, when `hasSource`, for each `hit` of `map->value(foldedName(sourceStem.data()))` in order, `hit.parentPath()` then `hit`. It contributes neither `effectiveRoot / nameForm` nor `effectiveRoot / sourceStem`. Each candidate passes `tryAppend`, the same exclusion and deduplication as every other, so a hit directly beneath the root collapses its parent into the root form and a parent shared by several hits is contributed once, at its first position.
+
+    *   `[X]` test/testdata/`filesearcher`
+        *   `[X]` test/testdata/filesearcher/library/Album One/`alpha.txt` — the single line `fixture` followed by a line feed.
+        *   `[X]` test/testdata/filesearcher/library/Album One/Disc 1/`alpha.txt` — the single line `fixture` followed by a line feed.
+        *   `[X]` test/testdata/filesearcher/library/album two/`alpha.txt` — the single line `fixture` followed by a line feed.
+        *   `[X]` test/testdata/filesearcher/library/`loose.txt` — the single line `fixture` followed by a line feed.
+        *   `[X]` test/testdata/filesearcher/library/Genre/Artist/Album Three/`alpha.txt` — the single line `fixture` followed by a line feed.
+        *   `[X]` test/testdata/filesearcher/library/Genre/Other/Disc 1/`alpha.txt` — the single line `fixture` followed by a line feed.
+
+    *   `[X]` test/`testbittorrentcandidateroots.cpp`
+        *   `[X]` Add `#include <optional>`. Slots below pass search roots `/library` with the map list stated, over the file's default inputs unless stated otherwise. Map keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, written below as the unfolded name.
+        *   `[X]` `testDeepHitContributesParentThenDirectory` — maps holding `{Album → [/library/a/b/Album]}` → `/library`, `/library/a/b`, `/library/a/b/Album`.
+        *   `[X]` `testShallowHitParentCollapsesIntoRootForm` — maps holding `{Album → [/library/Album]}` → `/library`, `/library/Album`.
+        *   `[X]` `testEveryHitOfRepeatedNameContributes` — maps holding `{Album → [/library/a/Album, /library/b/Album]}` → `/library`, `/library/a`, `/library/a/Album`, `/library/b`, `/library/b/Album`.
+        *   `[X]` `testSourceHitsFollowNameHits` — maps holding `{Album → [/library/p/Album], Album Rip → [/library/q/Album Rip]}` → `/library`, `/library/p`, `/library/p/Album`, `/library/q`, `/library/q/Album Rip`.
+        *   `[X]` `testSharedParentContributesOnce` — maps holding `{Album → [/library/x/Album], Album Rip → [/library/x/Album Rip]}` → `/library`, `/library/x`, `/library/x/Album`, `/library/x/Album Rip`.
+        *   `[X]` `testHitParentEqualToOwnPathIsExcluded` — save `/library/p`, maps holding `{Album → [/library/p/Album]}` → `/library`, `/library/p/Album`.
+        *   `[X]` `testUncontainedNameIsNotLookedUp` — torrent name `..`, source file name empty, maps holding `{.. → [/elsewhere/inner]}` → `/library`.
+        *   `[X]` `testEnumeratedRootContributesRootFormOnMiss` — maps holding one empty map → `/library`.
+        *   `[X]` `testRootsBeyondMapsAreProbed` — search roots `/library`, `/watch`, maps holding one empty map → `/library`, `/watch`, `/watch/Album`, `/watch/Album Rip`.
+        *   `[X]` `testNulloptMapIsProbed` — maps holding `std::nullopt` → `/library`, `/library/Album`, `/library/Album Rip`.
+        *   `[X]` `testLookupFoldsCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — torrent name `ALBUM`, maps holding `{album → [C:/library/x/Album]}`, search roots `C:/library` → `C:/library`, `C:/library/x`, `C:/library/x/Album`.
+
+    *   `[X]` test/`testbittorrentsubdirectories.cpp`
+        *   `[X]` New file proving `enumerateSubdirectories()`. Until the implementation element exists it fails to link with an unresolved symbol `enumerateSubdirectories`, and that link failure is its red state.
+        *   `[X]` Form, includes and fixture root as `testbittorrentfilesearcher.cpp`, with `class TestBittorrentSubdirectories` and without `<QPromise>` and `"base/bittorrent/common.h"`. Add `<QFile>`, `<QFileInfo>`, `<QScopeGuard>` and `<QTemporaryDir>` for the slots building trees at run time, and `<QtSystemDetection>` for their platform guards. Expected keys are formed by a local lambda folding case where `Path::CASE_SENSITIVITY` is `Qt::CaseInsensitive`, and each value is compared as a `PathList`.
+        *   `[X]` `testListsEveryDirectoryInTree` — root `library` → exactly the keys `Album One`, `Disc 1`, `album two`, `Genre`, `Artist`, `Album Three` and `Other`, with `Album One` → [`library/Album One`], `album two` → [`library/album two`], `Genre` → [`library/Genre`], `Artist` → [`library/Genre/Artist`], `Album Three` → [`library/Genre/Artist/Album Three`] and `Other` → [`library/Genre/Other`].
+        *   `[X]` `testRepeatedNameListsEachInPathOrder` — root `library` → `Disc 1` → [`library/Album One/Disc 1`, `library/Genre/Other/Disc 1`].
+        *   `[X]` `testFilesAndRootAreNotListed` — root `library` → no entry for `loose.txt`, `alpha.txt` or `library`.
+        *   `[X]` `testHiddenDirectoriesAreNotEntered`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires dot-prefixed hidden directories.")` — in a `QTemporaryDir`, create `visible` and `.hidden/inner`, `QVERIFY` each setup operation → exactly the key `visible`.
+        *   `[X]` `testSymbolicLinksAreNotFollowed`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires symbolic links.")` — in a `QTemporaryDir` `t`, create `real/inner`, then `QFile::link(t, real/loop)` and `QFile::link(real, linked)`, `QVERIFY` each setup operation → the walk returns, with exactly the keys `real` and `inner`, `real` → [`t/real`].
+        *   `[X]` `testUnreadableBranchIsSkipped`, its body guarded by `#ifdef Q_OS_UNIX` with an `#else` branch calling `QSKIP("Requires Unix permission semantics.")` — in a `QTemporaryDir`, create `open/inside` and `closed/child`, remove the permissions of `closed` with `QFile::setPermissions(closed, {})`, and register a `qScopeGuard` restoring owner read, write and execute before `QTemporaryDir` cleans up. `QVERIFY` each setup operation. When `QFileInfo::exists()` still reports `closed/child`, use `QSKIP`, because the running account can traverse `closed`. Otherwise → exactly the keys `open`, `inside` and `closed`.
+        *   `[X]` `testAbsentRootYieldsEmptyMap` — root `absent` → empty.
+        *   `[X]` `testEmptyRootYieldsEmptyMap` — root `Path()` → empty.
+        *   `[X]` `testKeysFoldCaseOnWindows`, compiled only under `#ifdef Q_OS_WIN` — root `library` → the map holds the keys `album one` and `album three`.
+
+    *   `[X]` test/`CMakeLists.txt`
+        *   `[X]` Add `testbittorrentsubdirectories.cpp` to `testFiles` after `testbittorrentpeeraddress.cpp` and before `testbittorrenttorrentdescriptor.cpp`.
+
+    *   `[X]` src/base/bittorrent/`filesearcher.cpp`
+        *   `[X]` Add `#include <algorithm>` in a standard library group ahead of the Qt group, and `#include <QDir>`, `#include <QDirIterator>` and `#include <QFileInfo>` before `#include <QPromise>`.
+        *   `[X]` Add `foldedName` to the anonymous namespace, extend `candidateRoots()`, and define `enumerateSubdirectories()` after it, per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` `filesearcher` depends inward on `path` and Qt core alone, and on nothing that depends on it.
+
+    *   `[X]` `requirements`
+        *   `[X]` EN-2, EN-3: `testListsEveryDirectoryInTree`, `testRepeatedNameListsEachInPathOrder`, `testFilesAndRootAreNotListed`.
+        *   `[X]` EN-4, EN-5: `testKeysFoldCaseOnWindows`, `testLookupFoldsCaseOnWindows`; `SubdirectoryMap` is keyed on `QString`.
+        *   `[X]` EN-8: `testHiddenDirectoriesAreNotEntered` and `testSymbolicLinksAreNotFollowed` on Unix. Windows does not give an unprivileged unit test a stable way to create a junction, so the dependency map's manual case for step 22 verifies that a junction pointing back at its root is not entered.
+        *   `[X]` CR-8: `testDeepHitContributesParentThenDirectory`, `testShallowHitParentCollapsesIntoRootForm`, `testEveryHitOfRepeatedNameContributes`, `testSourceHitsFollowNameHits`, `testSharedParentContributesOnce`, `testHitParentEqualToOwnPathIsExcluded`, `testUncontainedNameIsNotLookedUp`, `testEnumeratedRootContributesRootFormOnMiss`.
+        *   `[X]` PS-12: `testAbsentRootYieldsEmptyMap`, `testEmptyRootYieldsEmptyMap`, and the Unix-only `testUnreadableBranchIsSkipped`.
+        *   `[X]` CN-1, CR-2: every existing slot of `testbittorrentcandidateroots.cpp`, `testbittorrentfilesearcher.cpp` and `testbittorrentfilesearchermultiroot.cpp` passes unmodified, alongside `testRootsBeyondMapsAreProbed` and `testNulloptMapIsProbed`.
+        *   `[X]` BT-3, BT-5, BT-6: `testbittorrentsubdirectories.cpp` is registered and uses fixtures under `test/testdata/filesearcher`; the new `testbittorrentcandidateroots.cpp` slots use none.
+
+*   `[X]` [BE] src/base/bittorrent/`sessionimpl` — add `Session::findTorrentLocations()`, a batch operation taking torrent IDs and an optional pointed root; compose each operation's search roots as the pointed root, then the discovery roots in configured order, then the watched folder save paths; enumerate the pointed root and every recursive discovery root once on the I/O thread for that operation; reuse those immutable maps for every torrent in a batch and for automatic additions arriving while an unchanged add operation is in flight; and preserve the first epic's exact candidate-membership attribution when naming pointed and discovery roots in the log. T22, T20
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the composition behind every discovery searches only the torrent's own paths and the watched folder save paths, so neither a configured discovery root nor a directory the user points at is searched.
+        *   `[X]` Functional: compose the search roots as a pointed root where one is supplied, then the discovery roots in the order configured, then the watched folder save paths, all after the torrent's own save path and download path.
+        *   `[X]` Functional: walk the tree beneath the pointed root and every discovery root marked recursive once for the operation that needs it, and hand those maps to `candidateRoots()`; a batch reuses the same maps for every torrent it submits, and an automatic addition reuses the maps of an add operation still in flight whose composed roots and default save path are unchanged.
+        *   `[X]` Functional: accept a list of torrent IDs and an optional pointed root through `findTorrentLocations()`, use the pointed root for that operation alone, writing nothing to the discovery root list, report each result through the existing per-torrent signal as it completes, and enumerate the operation's roots once rather than once per torrent.
+        *   `[X]` Functional: `findTorrentLocation()` keeps its declaration and its outcome, and runs as a one-torrent batch.
+        *   `[X]` Functional: record the exact search root and whether it was the pointed root, a discovery root or a watched folder root, without inferring provenance from ancestry.
+        *   `[X]` Non-functional: listing is filesystem I/O and runs on the session I/O thread with the probing; the operation-local maps are immutable while its torrent searches use them and are discarded after its last search ends. No session-lived filesystem cache is added.
+
+    *   `[X]` `role`
+        *   `[X]` Application service in `src/base/bittorrent`, the one place candidate roots are composed.
+        *   `[X]` Out of scope: storing or editing discovery roots, which are the `discoveryroots` and `discoveryrootsmodel` nodes; asking the user for a directory, which is the `unmatchedtorrentsdialog` node.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the order of search roots, which of them are enumerated, sharing their maps within one operation, and the exact origin named in the log. Outside: how a map is built and how candidates are derived from it.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/discoveryroots.h` — `DiscoveryRoots::instance()`, `DiscoveryRoots::roots()` and `DiscoveryRoot`, from the `discoveryroots` node. A lower layer, depended on inward.
+        *   `[X]` `filesearcher.h` — `SubdirectoryMap`, `enumerateSubdirectories()` and the extended `candidateRoots()`, from the `filesearcher` node. Already included by `sessionimpl.cpp`.
+        *   `[X]` `<memory>` — `std::shared_ptr`, holding one operation's snapshot and maps across its searches, and `std::weak_ptr`, referring to the in-flight add operation without owning it.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `searchExistingContent()`, `findExistingContent()`, `findTorrentLocation()` and the log continuation are those the first and second epics' `sessionimpl` nodes define. `DiscoveryRoots::roots()` is read on the main thread, where the operation snapshot is composed before dispatching. `findIncompleteFiles()` dispatches onto the I/O thread through `QMetaObject::invokeMethod(m_fileSearcher, ...)`; functors queued to that one thread run in the order they are queued. The first epic attributes a winning watched-folder candidate by rebuilding each root's exact candidate set in order and taking the first set containing the winning path; this node extends that rule and does not replace it with an ancestry test.
+
+    *   `[X]` src/base/bittorrent/`session.h`
+        *   `[X]` After `virtual void findTorrentLocation(const TorrentID &id) = 0;`, which is unchanged, add `virtual void findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot = {}) = 0;`, as `removeTorrent()` carries a trailing default. It is an operation boundary for sharing enumeration; it does not replace the per-torrent completion signal.
+
+    *   `[X]` src/base/bittorrent/`sessionimpl.h`
+        *   `[X]` Add `#include <memory>` after `#include <functional>`.
+        *   `[X]` After `void findTorrentLocation(const TorrentID &id) override;`, which is unchanged, add `void findTorrentLocations(const QList<TorrentID> &ids, const Path &pointedRoot = {}) override;`.
+        *   `[X]` In the `private` section, before the `searchExistingContent()` declaration, forward-declare the nested `struct SearchOperation;` and declare, in order, `std::shared_ptr<SearchOperation> composeSearchOperation(const Path &pointedRoot) const;`, `void enumerateSearchOperation(const std::shared_ptr<SearchOperation> &operation);` and `std::shared_ptr<SearchOperation> createSearchOperation(const Path &pointedRoot);`.
+        *   `[X]` After `QHash<TorrentID, LocationAssignmentState> m_locationAssignments;`, add `std::weak_ptr<SearchOperation> m_inFlightAddOperation;`.
+        *   `[X]` The `searchExistingContent()` declaration gains the trailing parameter `std::shared_ptr<const SearchOperation> operation`.
+
+    *   `[X]` src/base/bittorrent/`sessionimpl.cpp` types
+        *   `[X]` `struct SessionImpl::SearchOperation`, defined in `sessionimpl.cpp` before its first use, declares `enum class Origin { Pointed, Discovery, WatchedFolder };`, `struct Root { Path path; Origin origin; bool enumerated; bool operator==(const Root &) const = default; };`, and the members `QList<Root> roots;`, `PathList searchRoots;`, `Path defaultSavePath;` and `QList<std::optional<SubdirectoryMap>> subdirectoryMaps;`. `searchRoots` holds `roots`' paths in the same order, as `candidateRoots()` takes them.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `composeSearchOperation(pointedRoot)`, on the main thread and touching no filesystem, builds a `std::make_shared<SearchOperation>()` whose `roots` hold, in order: `pointedRoot` where non-empty, as `Origin::Pointed` and enumerated; each `DiscoveryRoot` of `DiscoveryRoots::instance()->roots()`, as `Origin::Discovery` and enumerated exactly when `root.options.recursive`; then each entry of `m_watchedFolderSavePaths` resolved as the first epic resolves it, as `Origin::WatchedFolder` and not enumerated. It fills `searchRoots` from `roots`, sets `defaultSavePath` to `savePath()`, and returns the operation.
+        *   `[X]` `enumerateSearchOperation(operation)`: when any root of `operation` is enumerated, queue one functor onto `m_fileSearcher` through `QMetaObject::invokeMethod`, capturing the operation, that fills `subdirectoryMaps` with `enumerateSubdirectories(roots[i].path)` at each enumerated index and `std::nullopt` at each other. When none is, `subdirectoryMaps` stays empty, `subdirectoryMaps.value(i)` yields `std::nullopt` for every index, and nothing is listed.
+        *   `[X]` `createSearchOperation(pointedRoot)`: `composeSearchOperation(pointedRoot)`, then `enumerateSearchOperation()` on the result, then return it.
+        *   `[X]` The enumeration functor is queued before every search of its operation, including every search of an automatic addition that reuses it, so on the one I/O thread it completes before any of them reads the maps; after it, nothing writes the operation. Each search reaches its main-thread continuation through its promise, so the continuation reads maps already written.
+        *   `[X]` `searchExistingContent(..., operation)` keeps the first epic's derivation of `nameFormName`, and reads `const bool appendExtension = isAppendExtensionEnabled();` on the calling thread. Inside the functor it queues onto `m_fileSearcher`, it computes `candidates` as `candidateRoots(torrentSavePath, torrentDownloadPath, operation->searchRoots, operation->defaultSavePath, nameFormName, sourceFileName, operation->subdirectoryMaps)`, replacing the first epic's `candidateRoots()` call on the calling thread, because the maps exist only once the enumeration functor has run. It then calls `m_fileSearcher->searchRoots(filePaths, torrentSavePath, torrentDownloadPath, candidates, appendExtension, promise)`. The functor and the continuation each capture `operation` by value, so the operation is released when the last continuation of its last search ends. No session-lived filesystem cache is added.
+        *   `[X]` The continuation with `result.foundAtOwnPath` false and `result.matchCount` above 0 takes as origin the first index `i` of `operation->roots` for which `candidateRoots({}, {}, {roots[i].path}, defaultSavePath, nameFormName, sourceFileName, {subdirectoryMaps.value(i)})` contains the winning location, with the entry read as the first epic reads it, and names it `tr("pointed root \"%1\"")`, `tr("discovery root \"%1\"")` or `tr("watched folder save path \"%1\"")` by that root's `Origin`, substituting that exact root, in the first epic's "Found existing torrent content" message. No origin is classified because the winning path has a root as an ancestor. The continuation with `result.matchCount` equal to 0 and `result.searchedCandidates` true logs the first epic's "Existing torrent content not found" message. Otherwise it logs nothing.
+        *   `[X]` `findExistingContent()` returns `findIncompleteFiles(torrentSavePath, torrentDownloadPath, filePaths)` first when either setting is off, and obtains an operation only in the branch that follows. There it calls `composeSearchOperation({})` and locks `m_inFlightAddOperation`. A live operation whose `roots` and `defaultSavePath` equal the composed operation's is used. Otherwise `enumerateSearchOperation()` is called on the composed operation, `m_inFlightAddOperation` is assigned it, and it is used. The operation used is passed to `searchExistingContent()`. `m_inFlightAddOperation` owns nothing, so the operation and its maps are released when the last continuation holding it ends. **Find location** and **Search folder...** operations are never assigned to `m_inFlightAddOperation`.
+        *   `[X]` `findTorrentLocation(id)` → `findTorrentLocations({id})`, keeping the second epic's outcomes.
+        *   `[X]` `findTorrentLocations(ids, pointedRoot)`: for each ID in order, no torrent in `m_torrents` under it, or a torrent without metadata → `emit torrentLocationFound(id, {}, false)`; otherwise the torrent joins the valid list. An empty valid list → return, creating no operation. Otherwise one `createSearchOperation(pointedRoot)` is shared by every valid torrent's `searchExistingContent(torrent->savePath(), torrent->downloadPath(), torrent->filePaths(), torrent->info().name(), {}, operation)`, each continued with `.then(this, ...)` into `emit torrentLocationFound(id, result.savePath, ((result.matchCount > 0) || result.foundAtOwnPath))` as its own search completes.
+
+    *   `[X]` src/base/bittorrent/`sessionimpl.cpp`
+        *   `[X]` Add `#include "base/discoveryroots.h"` after `#include "base/algorithm.h"`.
+        *   `[X]` Define `SessionImpl::SearchOperation`, `SessionImpl::composeSearchOperation()`, `SessionImpl::enumerateSearchOperation()` and `SessionImpl::createSearchOperation()` before `SessionImpl::searchExistingContent()`; revise `SessionImpl::searchExistingContent()`, `SessionImpl::findExistingContent()` and `SessionImpl::findTorrentLocation()`; and define `SessionImpl::findTorrentLocations()` after `SessionImpl::findTorrentLocation()`, per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` `sessionimpl` gains a dependency on `discoveryroots` in `src/base`, which depends on nothing in `src/base/bittorrent`. `src/gui` supplies a pointed root only through `Session::findTorrentLocations()`.
+
+    *   `[X]` `requirements`
+        *   `[X]` CR-3: the pointed root precedes the discovery roots, which precede the watched folder save paths, in configured order.
+        *   `[X]` CR-10: the discovery root list is read in `createSearchOperation()`, ahead of the watched folder save paths, and maps are supplied for recursive roots.
+        *   `[X]` EN-2, EN-6, EN-7: the pointed root is enumerated on the terms of a recursive discovery root, each root is listed once per operation, automatic additions arriving while an unchanged add operation is in flight share its listing, and the maps live no longer than that operation.
+        *   `[X]` ST-8: nothing in this node writes to `DiscoveryRoots`.
+        *   `[X]` RL-3, RL-5: `enumerateSubdirectories()` runs on `m_fileSearcher`'s thread.
+        *   `[X]` ST-4: with either setting off, `findExistingContent()` returns `findIncompleteFiles()`'s result, reading no discovery root.
+        *   `[X]` IF-13: the batch operation retains the existing per-torrent completion signal, so each outcome is reported as its search completes.
+        *   `[X]` LG-1: the origin identifies the exact candidate-producing root. Nested pointed, discovery and watched-folder roots cannot be misclassified through ancestry.
+        *   `[X]` This node is verified by the dependency map's manual case for step 22 and the Epic 3 batch-enumeration and overlapping-origin cases at the commit boundary.
+
+*   `[X]` [UI] src/gui/`transferlistwidget` — submit each **Find location** invocation's new IDs through one `Session::findTorrentLocations()` call, so a multi-torrent invocation enumerates each recursive root once. T22
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the second epic's second pass calls `findTorrentLocation()` once per ID, so each torrent would be its own operation and list every recursive discovery root again.
+        *   `[X]` Functional: one invocation's newly registered IDs form one operation.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `findSelectedTorrentsLocation()`, `submitted`, `m_findLocationOperation` and `handleTorrentLocationFound()` are those the second epic's `transferlistwidget` node defines.
+
+    *   `[X]` src/gui/`transferlistwidget.cpp`
+        *   `[X]` In `findSelectedTorrentsLocation()`, the second pass becomes one `BitTorrent::Session::instance()->findTorrentLocations(submitted);`, made only when `submitted` is non-empty. The first pass, registration of every ID before that call, the operation map, `handleTorrentLocationFound()` and assignment are unchanged.
+
+    *   `[X]` `directionality`
+        *   `[X]` `transferlistwidget` depends downward on `Session` as it already does.
+
+    *   `[X]` `requirements`
+        *   `[X]` EN-6: a multi-torrent invocation is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
+        *   `[X]` IF-13: each outcome still arrives through `torrentLocationFound` as its search completes; Epic 2 integration scenarios 4 and 5 still pass.
+
+*   `[X]` [API] src/webui/api/`torrentscontroller` — submit each `torrents/findLocation` request's new IDs through one `Session::findTorrentLocations()` call, so a multi-torrent request enumerates each recursive root once, and accept an optional `root` as that operation's pointed root. T22, T25
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the second epic's `findLocationAction()` calls `findTorrentLocation()` once per registered ID, so each torrent would be its own operation and list every recursive discovery root again.
+        *   `[X]` Problem: a client of the web interface or the headless daemon cannot point a search at a directory, which the desktop unmatched list does through **Search folder...**.
+        *   `[X]` Functional: one request's newly registered IDs form one operation.
+        *   `[X]` Functional: a request carrying `root` searches its newly registered IDs with that directory as the pointed root, and writes the directory nowhere.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `findLocationAction()`, `submitted`, `m_findLocationOperation` and `onTorrentLocationFound()` are those the second epic's `torrentscontroller` node defines.
+
+    *   `[X]` src/webui/api/`torrentscontroller.cpp`
+        *   `[X]` In `findLocationAction()`, after the disabled test, read `const Path root {params()[u"root"_s].trimmed()};`. A non-empty `root` for which `!Utils::Fs::isDir(root)` → `throw APIError(APIErrorType::Conflict, tr("Folder does not exist"))`, before any ID is registered.
+        *   `[X]` In `findLocationAction()`, the calls to `findTorrentLocation()` over `submitted` become one `BitTorrent::Session::instance()->findTorrentLocations(submitted, root);`, made only when `submitted` is non-empty, so an empty `root` is no pointed root. Registration of every ID before that call, the operation map, `onTorrentLocationFound()`, assignment and the answer are unchanged.
+
+    *   `[X]` `directionality`
+        *   `[X]` `torrentscontroller` depends downward on `Session` as it already does, and writes nothing to `DiscoveryRoots`.
+
+    *   `[X]` `requirements`
+        *   `[X]` EN-6: a multi-torrent request is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
+        *   `[X]` IF-20: a request carrying an existing `root` searches its registered torrents with it as the pointed root; a `root` that is not an existing directory answers HTTP 409 and registers nothing.
+        *   `[X]` ST-8: `root` reaches only `findTorrentLocations()`.
+        *   `[X]` IF-12: the new message passes through `tr()`.
+        *   `[X]` Verify the parameter through Epic 3 integration scenario 10 at the commit boundary.
+        *   `[X]` IF-13: each outcome still arrives through `torrentLocationFound` as its search completes; Epic 2 integration scenarios 18 and 19 still pass.
+
+*   `[X]` [UI] src/gui/`discoveryrootsmodel` — add `DiscoveryRootsModel`, a `QAbstractListModel` over the discovery root list, following `WatchedFoldersModel`, holding edits until `apply()` writes the list through `DiscoveryRoots::setRoots()`. T19
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the options dialog needs an editable, ordered view of the discovery root list whose edits take effect only when the page is applied.
+        *   `[X]` Functional: present each root by path in configured order; add a root at the end after checking it; remove rows; read and replace a row's options; write the whole list on `apply()`.
+        *   `[X]` Functional: reload when the stored list changes by another route.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation model in `src/gui`.
+        *   `[X]` Out of scope: persistence, which is the `discoveryroots` node; the per-root dialog and the view, which are the `discoveryrootoptionsdialog` and `optionsdialog` nodes.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the pending list, its rows, its validation and its application. Outside: storage and presentation of options.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/discoveryroots.h` — `DiscoveryRoots`, `DiscoveryRoot`, `DiscoveryRootOptions`, `roots()`, `setRoots()` and `rootsChanged`. A lower layer, depended on inward.
+        *   `[X]` `base/exceptions.h` — `InvalidArgument` and `RuntimeError`.
+        *   `[X]` `<QDir>` — `QDir::exists()` and `QDir::isReadable()`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `WatchedFoldersModel` is the model: constructed with the storage object and a parent, one column, `Qt::DisplayRole` returning `toString()` of the path, `headerData()` returning one translated title, `removeRows()` validating its range and bracketing the removal with `beginRemoveRows()` and `endRemoveRows()`, `addFolder()` throwing `InvalidArgument` for an empty or relative path and `RuntimeError` for a duplicate, missing or unreadable one, `folderOptions()` and `setFolderOptions()` asserting the row, and `apply()`.
+
+    *   `[X]` src/gui/`discoveryrootsmodel.h`
+        *   `[X]` New file: the licence header of `watchedfoldersmodel.h` naming the contributor, `#pragma once`, `#include <QAbstractListModel>` and `#include <QList>`, then `#include "base/discoveryroots.h"` and `#include "base/path.h"`.
+        *   `[X]` `class DiscoveryRootsModel final : public QAbstractListModel` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRootsModel)`, declaring public `explicit DiscoveryRootsModel(DiscoveryRoots *discoveryRoots, QObject *parent = nullptr);`, the overrides `rowCount()`, `columnCount()`, `data()`, `headerData()` and `removeRows()` with `WatchedFoldersModel`'s signatures, `void addRoot(const Path &path, const DiscoveryRootOptions &options);`, `DiscoveryRootOptions rootOptions(int row) const;`, `void setRootOptions(int row, const DiscoveryRootOptions &options);` and `void apply();`; private `void onRootsChanged();`, `DiscoveryRoots *m_discoveryRoots = nullptr;` and `QList<DiscoveryRoot> m_roots;`.
+
+    *   `[X]` `construction`
+        *   `[X]` The constructor takes the storage object, copies `roots()` into `m_roots`, and connects `DiscoveryRoots::rootsChanged` to `onRootsChanged`, so the model is complete on return.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `rowCount(parent)`: a valid parent → 0; otherwise `m_roots.size()`. `columnCount()` → 1. `data(index, role)`: an index out of range → `{}`; `Qt::DisplayRole` → `m_roots.at(row).path.toString()`; any other role → `{}`. `headerData()`: horizontal display role for section 0 → `tr("Discovery root")`; otherwise `{}`.
+        *   `[X]` `removeRows(row, count, parent)`: a valid parent or a range outside the rows → `false`; otherwise the rows are removed between `beginRemoveRows()` and `endRemoveRows()`, and `true`.
+        *   `[X]` `addRoot(path, options)`: empty → `InvalidArgument(tr("Discovery root path cannot be empty."))`; relative → `InvalidArgument(tr("Discovery root path cannot be relative."))`; already present by `operator==` → `RuntimeError(tr("Folder '%1' is already in the discovery root list.").arg(path.toString()))`; `QDir` not existing → `RuntimeError(tr("Folder '%1' doesn't exist.").arg(path.toString()))`; not readable → `RuntimeError(tr("Folder '%1' isn't readable.").arg(path.toString()))`; otherwise appended between `beginInsertRows()` and `endInsertRows()`.
+        *   `[X]` `rootOptions(row)` and `setRootOptions(row, options)` assert `row` is in range, then read or replace `m_roots[row].options`.
+        *   `[X]` `apply()` → `m_discoveryRoots->setRoots(m_roots)`.
+        *   `[X]` `onRootsChanged()` → `beginResetModel()`, `m_roots = m_discoveryRoots->roots()`, `endResetModel()`.
+
+    *   `[X]` src/gui/`discoveryrootsmodel.cpp`
+        *   `[X]` New file: the licence header of `watchedfoldersmodel.cpp` naming the contributor, `#include "discoveryrootsmodel.h"`, then `#include <QDir>`, then `#include "base/exceptions.h"`, and every member per the interaction spec.
+
+    *   `[X]` src/gui/`CMakeLists.txt`
+        *   `[X]` Add `discoveryrootsmodel.h` to the headers of `add_library(qbt_gui ...)` after `desktopintegration.h`, and `discoveryrootsmodel.cpp` to its sources after `desktopintegration.cpp`.
+
+    *   `[X]` `directionality`
+        *   `[X]` `discoveryrootsmodel` in `src/gui` depends downward on `discoveryroots` and `exceptions` in `src/base`. Only `optionsdialog` depends on it.
+
+    *   `[X]` `requirements`
+        *   `[X]` CR-3: rows keep the configured order, new roots are appended, and `apply()` writes that order.
+        *   `[X]` IF-12: every message and the header title are wrapped in `tr()`.
+        *   `[X]` BT-2: both files are registered in `src/gui/CMakeLists.txt`.
+        *   `[X]` The model is verified by the dependency map's manual case for step 19.
+
+*   `[X]` [UI] src/gui/`discoveryrootoptionsdialog` — add `DiscoveryRootOptionsDialog`, following `WatchedFolderOptionsDialog`, carrying the **Recursive mode** checkbox for one root's `DiscoveryRootOptions`. T19
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: a discovery root's options need a dialog for adding and editing, as a watched folder's do.
+        *   `[X]` Functional: show one root's options, with recursion as a checkbox, and return the options as edited when accepted.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/gui`, opened by the `optionsdialog` node.
+        *   `[X]` Out of scope: which root the options belong to, and applying them.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: one checkbox and its options value. Outside: the root list.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/discoveryroots.h` — `DiscoveryRootOptions`. A lower layer, depended on inward.
+        *   `[X]` `ui_discoveryrootoptionsdialog.h` — generated from `discoveryrootoptionsdialog.ui`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `WatchedFolderOptionsDialog` is the model: a constructor taking the options and a parent, a forward-declared `Ui` class, a raw `m_ui`, `setupUi()`, `accepted` and `rejected` connected to `accept()` and `reject()`, an accessor building the options from the checkbox, and `checkBoxRecursive` with text `Recursive mode`.
+
+    *   `[X]` src/gui/`discoveryrootoptionsdialog.h`
+        *   `[X]` New file: the licence header of `watchedfolderoptionsdialog.h` naming the contributor, `#pragma once`, `#include <QDialog>`, `#include "base/discoveryroots.h"`, and `namespace Ui { class DiscoveryRootOptionsDialog; }`.
+        *   `[X]` `class DiscoveryRootOptionsDialog final : public QDialog` with `Q_OBJECT` and `Q_DISABLE_COPY_MOVE(DiscoveryRootOptionsDialog)`, declaring public `explicit DiscoveryRootOptionsDialog(const DiscoveryRootOptions &options, QWidget *parent);`, `~DiscoveryRootOptionsDialog() override;` and `DiscoveryRootOptions discoveryRootOptions() const;`, and private `Ui::DiscoveryRootOptionsDialog *m_ui = nullptr;`.
+
+    *   `[X]` src/gui/`discoveryrootoptionsdialog.ui`
+        *   `[X]` New file in the form of `watchedfolderoptionsdialog.ui`: class `DiscoveryRootOptionsDialog`, a `QDialog` with `windowTitle` `Discovery Root Options`, laid out by a `QVBoxLayout` named `verticalLayout` holding, in order, a `QCheckBox` named `checkBoxRecursive` with `text` `Recursive mode` and `toolTip` `Search every folder beneath this folder, at any depth, for a folder named as the torrent or its .torrent file.`, a vertical spacer, and a `QDialogButtonBox` named `buttonBox` with `standardButtons` `QDialogButtonBox::StandardButton::Cancel|QDialogButtonBox::StandardButton::Ok`.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Constructor: the initialiser list is `QDialog {parent}` then `m_ui {new Ui::DiscoveryRootOptionsDialog}`, as `WatchedFolderOptionsDialog` allocates its `m_ui`; the body calls `m_ui->setupUi(this)`, checks `checkBoxRecursive` as `options.recursive`, and connects `buttonBox` `accepted` and `rejected` to `accept()` and `reject()`. The destructor deletes `m_ui`.
+        *   `[X]` `discoveryRootOptions()` → `DiscoveryRootOptions {.recursive = m_ui->checkBoxRecursive->isChecked()}`.
+
+    *   `[X]` src/gui/`discoveryrootoptionsdialog.cpp`
+        *   `[X]` New file: the licence header of `watchedfolderoptionsdialog.cpp` naming the contributor, `#include "discoveryrootoptionsdialog.h"`, `#include "ui_discoveryrootoptionsdialog.h"`, and the constructor, the destructor deleting `m_ui`, and `discoveryRootOptions()` per the interaction spec.
+
+    *   `[X]` src/gui/`CMakeLists.txt`
+        *   `[X]` Add `discoveryrootoptionsdialog.ui` to `qt_wrap_ui(UI_HEADERS ...)` after `deletionconfirmationdialog.ui`, `discoveryrootoptionsdialog.h` to the headers of `add_library(qbt_gui ...)` after `desktopintegration.h` and before `discoveryrootsmodel.h`, and `discoveryrootoptionsdialog.cpp` to its sources after `desktopintegration.cpp` and before `discoveryrootsmodel.cpp`.
+
+    *   `[X]` `directionality`
+        *   `[X]` `discoveryrootoptionsdialog` in `src/gui` depends downward on `discoveryroots`. Only `optionsdialog` depends on it.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-3: the per-root dialog carries the recursion flag.
+        *   `[X]` IF-12: `uic` routes the `.ui` strings through `tr()`.
+        *   `[X]` BT-2: the three files are registered in `src/gui/CMakeLists.txt`.
+        *   `[X]` The dialog is verified by the dependency map's manual case for step 19.
+
+*   `[X]` [UI] src/gui/`optionsdialog` — add the discovery root list `discoveryRootsView`, backed by `DiscoveryRootsModel`, with **Add...**, **Options...** and **Remove** buttons opening `DiscoveryRootOptionsDialog`, inside `groupFindLocation`, applied with the page. T19
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: discovery roots have no desktop control.
+        *   `[X]` Functional: a list of discovery roots within the **Find location** group, with buttons to add a root through a directory chooser and the per-root dialog, to edit the selected root's options, and to remove the selected root; any change enables **Apply**, and applying writes the list.
+        *   `[X]` Non-functional: the list and its buttons follow the watched folder list's layout and keyboard behaviour, and are disabled with the group.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/gui`.
+        *   `[X]` Out of scope: the web interface control, which is the `preferences.html` node.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the view, its three buttons, their handlers, and the model's application. Outside: storage and the model's rules.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/discoveryroots.h` — `DiscoveryRoots::instance()`.
+        *   `[X]` `discoveryrootsmodel.h` and `discoveryrootoptionsdialog.h` — from the `discoveryrootsmodel` and `discoveryrootoptionsdialog` nodes.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The watched folder list is the model throughout: `scanFoldersView` with `addWatchedFolderButton`, `editWatchedFolderButton` and `removeWatchedFolderButton` in `optionsdialog.ui`; `WatchedFoldersModel` set on the view in `loadDownloadsTabOptions()` with its `dataChanged`, selection and `doubleClicked` connections; the add and remove buttons connected to `enableApplyButton`; `apply()` in `saveDownloadsTabOptions()`; and the auto-connected slots `on_addWatchedFolderButton_clicked()`, `on_editWatchedFolderButton_clicked()` and `on_removeWatchedFolderButton_clicked()` with `handleWatchedFolderViewSelectionChanged()` and `editWatchedFolderOptions()`.
+
+    *   `[X]` src/gui/`optionsdialog.h`
+        *   `[X]` In `private slots`, after `void editWatchedFolderOptions(const QModelIndex &index);`, add `void handleDiscoveryRootViewSelectionChanged();` and `void editDiscoveryRootOptions(const QModelIndex &index);`; after `void on_removeWatchedFolderButton_clicked();`, add `void on_addDiscoveryRootButton_clicked();`, `void on_editDiscoveryRootButton_clicked();` and `void on_removeDiscoveryRootButton_clicked();`.
+
+    *   `[X]` src/gui/`optionsdialog.ui`
+        *   `[X]` In `groupFindLocationLayout`, after the `<item>` holding `checkFindLocationLeech`, add two `<item>`s in order.
+        *   `[X]` The first holds `<widget class="QLabel" name="labelDiscoveryRoots">` with property `text` set to `Also search these folders:`.
+        *   `[X]` The second holds `<layout class="QHBoxLayout" name="discoveryRootsLayout">` containing two `<item>`s in order.
+        *   `[X]` The first item of `discoveryRootsLayout` holds `<widget class="QTreeView" name="discoveryRootsView">` with, in order, property `sizePolicy` set to `<sizepolicy hsizetype="Expanding" vsizetype="Expanding">` with `horstretch` 0 and `verstretch` 1; property `minimumSize` set to width 250 and height 100; property `selectionMode` set to `QAbstractItemView::SelectionMode::SingleSelection`; property `selectionBehavior` set to `QAbstractItemView::SelectionBehavior::SelectRows`; property `textElideMode` set to `Qt::TextElideMode::ElideNone`; property `rootIsDecorated` set to `false`; attribute `headerDefaultSectionSize` set to 80; and attribute `headerStretchLastSection` set to `false`. It has no `editTriggers` property.
+        *   `[X]` The second item of `discoveryRootsLayout` holds `<layout class="QVBoxLayout" name="discoveryRootsButtonsLayout">` containing four `<item>`s in order: `<widget class="QPushButton" name="addDiscoveryRootButton">` with `text` `Add...`; `<widget class="QPushButton" name="editDiscoveryRootButton">` with `enabled` `false` and `text` `Options..`; `<widget class="QPushButton" name="removeDiscoveryRootButton">` with `enabled` `false` and `text` `Remove`; and `<spacer name="discoveryRootsSpacer">` with `orientation` `Qt::Orientation::Vertical` and `sizeHint` width 20 and height 40.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Load: after the `scanFoldersView` `doubleClicked` connection, a `DiscoveryRootsModel(DiscoveryRoots::instance(), this)` with `dataChanged` connected to `enableApplyButton`; `discoveryRootsView` header resized to contents and its model set; its selection model's `selectionChanged` connected to `handleDiscoveryRootViewSelectionChanged`; its `doubleClicked` connected to `editDiscoveryRootOptions`.
+        *   `[X]` Connect: after the `addWatchedFolderButton` connection, `addDiscoveryRootButton` and `removeDiscoveryRootButton` `clicked` connected to `enableApplyButton`.
+        *   `[X]` Save: after `watchedFoldersModel->apply();`, the `DiscoveryRootsModel` of `discoveryRootsView` → `apply()`.
+        *   `[X]` `on_addDiscoveryRootButton_clicked()`: `QFileDialog::getExistingDirectory(this, tr("Select folder to search"))` empty → return; otherwise a heap `DiscoveryRootOptionsDialog({}, this)` with `Qt::WA_DeleteOnClose`, whose `accepted` calls `addRoot()` with the directory and `discoveryRootOptions()`, resizes the view's columns and enables **Apply**, a `RuntimeError` showing `QMessageBox::critical(this, tr("Adding entry failed"), err.message())`; then `open()`.
+        *   `[X]` `on_editDiscoveryRootButton_clicked()` → `editDiscoveryRootOptions()` on the first selected index. `editDiscoveryRootOptions(index)`: invalid → return; otherwise a heap `DiscoveryRootOptionsDialog(model->rootOptions(index.row()), this)` with `Qt::WA_DeleteOnClose`, whose `accepted`, with the index still valid, calls `setRootOptions()` and enables **Apply**; then `open()`.
+        *   `[X]` `on_removeDiscoveryRootButton_clicked()` → `removeRow()` for each selected index. `handleDiscoveryRootViewSelectionChanged()` → **Remove** enabled with any selection, **Options...** enabled with exactly one.
+
+    *   `[X]` src/gui/`optionsdialog.cpp`
+        *   `[X]` Add `#include "base/discoveryroots.h"` after `#include "base/bittorrent/sharelimits.h"`, and `#include "discoveryrootoptionsdialog.h"` then `#include "discoveryrootsmodel.h"` after `#include "banlistoptionsdialog.h"`.
+        *   `[X]` Add the load, connection and save statements, and define the five slots after `OptionsDialog::editWatchedFolderOptions()`, per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` `optionsdialog` depends beside it on `discoveryrootsmodel` and `discoveryrootoptionsdialog`, and downward on `discoveryroots`.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-3: the list opens the per-root dialog for adding and editing.
+        *   `[X]` IF-12: `uic` routes the `.ui` strings through `tr()`, and every handler string is wrapped in `tr()`.
+        *   `[X]` ST-3: unchecking `groupFindLocation` disables the list and its buttons and leaves the list as configured.
+        *   `[X]` The list is verified by the dependency map's manual case for step 19.
+
+*   `[X]` [UI] src/gui/`unmatchedtorrentsdialog` — add **Search folder...**, taking a directory and running one `Session::findTorrentLocations()` operation over the listed torrents with it as the pointed root, assigning and removing each torrent that matches, repeatable while entries remain. T20
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: a user looking at torrents that matched nothing, and knowing which directory holds them, can only set each location by hand.
+        *   `[X]` Functional: a button taking one directory and searching it for every listed torrent whose previous search has reported; each torrent found there is assigned its location and leaves the list, each torrent not found stays.
+        *   `[X]` Functional: the button stays available while entries remain, so a library across several disks is covered one directory at a time.
+        *   `[X]` Non-functional: the chosen directory is used for that search alone and written nowhere.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/gui`, the dialog the second epic's `unmatchedtorrentsdialog` node adds.
+        *   `[X]` Out of scope: enumeration and composition, which are the `sessionimpl` and `filesearcher` nodes.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the button, the directory chooser, the torrents awaiting a search outcome, and the hand-off of matches. Outside: discovery and assignment.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/bittorrent/session.h` — `Session::findTorrentLocations()` with its pointed root, from the `sessionimpl` node, and the `torrentLocationFound` signal.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The constructor, `m_torrentIDs`, `removeTorrent()` and the directory dialog are those the second epic's `unmatchedtorrentsdialog` node defines. `TransferListWidget` ignores an outcome for an ID outside its own pending set.
+
+    *   `[X]` src/gui/`unmatchedtorrentsdialog.h`
+        *   `[X]` Add `#include <QSet>` after `#include <QList>`, and `class Path;` before the `Ui` namespace.
+        *   `[X]` Add private `void searchFolder();` and `void handleTorrentLocationFound(const BitTorrent::TorrentID &id, const Path &location, bool found);`, and the member `QSet<BitTorrent::TorrentID> m_pendingSearches;`.
+
+    *   `[X]` src/gui/`unmatchedtorrentsdialog.ui`
+        *   `[X]` `labelUnmatched`'s `text` becomes `No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.`
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` Constructor: before the **Set location...** button, `m_ui->buttonBox->addButton(tr("Search folder..."), QDialogButtonBox::ActionRole)` with `clicked` connected to `searchFolder`; and `BitTorrent::Session::torrentLocationFound` connected to `handleTorrentLocationFound`.
+        *   `[X]` `searchFolder()`: a heap `QFileDialog` titled `tr("Choose a folder to search")` in the directory mode and options of the existing directory dialog, with `Qt::WA_DeleteOnClose`, starting at no path. On `accepted` with an existing `Path`, each ID of `m_torrentIDs` not in `m_pendingSearches` is inserted into it and appended to a local `QList<BitTorrent::TorrentID> submitted`; after every insertion, a non-empty `submitted` is passed once to `BitTorrent::Session::instance()->findTorrentLocations(submitted, folder)`, so the folder is listed once for the whole list and an outcome emitted during the call finds its ID already pending. Then `open()`.
+        *   `[X]` `handleTorrentLocationFound(id, location, found)`: `m_pendingSearches.remove(id)` false → return. `found` true and `m_torrentIDs` holding `id` → `BitTorrent::Session::instance()->assignTorrentLocation(id, location)` then `removeTorrent(id)`; `found` false → the entry stays.
+
+    *   `[X]` src/gui/`unmatchedtorrentsdialog.cpp`
+        *   `[X]` Add the constructor statements and define `searchFolder()` and `handleTorrentLocationFound()` per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` The dialog depends downward on `Session` as it already does, and writes nothing to `DiscoveryRoots`.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-10: the list accepts a directory to search, and another while entries remain.
+        *   `[X]` ST-8: the pointed root reaches only `findTorrentLocations()`.
+        *   `[X]` EN-6: one **Search folder...** action is one operation, verified by the batch-enumeration case at the Epic 3 commit boundary.
+        *   `[X]` IF-11: discovery and assignment are reached through `BitTorrent::Session`.
+        *   `[X]` IF-12: the button and dialog titles are wrapped in `tr()`.
+        *   `[X]` The action is verified by the dependency map's manual case for step 20.
+
+*   `[X]` [UI] src/webui/www/private/`unmatchedtorrents.html` — add **Search folder...**, posting every listed torrent to `torrents/findLocation` with the directory in the path field as `root`, polling until the operation completes, and removing each torrent the answer reports matched, repeatable while entries remain. T25
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: a web interface user looking at torrents that matched nothing, and knowing which directory holds them, can only set each location by hand, while the desktop list searches a chosen directory.
+        *   `[X]` Functional: a button searching the directory entered in the path field for every listed torrent as one operation; each torrent found there is assigned its location and leaves the list, each torrent not found stays.
+        *   `[X]` Functional: the button is available again once its search completes while entries remain, so a library across several disks is covered one directory at a time.
+        *   `[X]` Non-functional: the directory is used for that search alone and written nowhere; the button is a native element reachable by Tab, and its label passes through `QBT_TR`.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/webui/www`, the window the second epic's `unmatchedtorrents.html` node adds.
+        *   `[X]` Out of scope: enumeration, composition and assignment, which are the `sessionimpl` and `torrentscontroller` nodes.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the button, its request and poll, and removing matched entries. Outside: discovery and assignment.
+
+    *   `[X]` `deps`
+        *   `[X]` `torrents/findLocation` with `root`, from this epic's `torrentscontroller` node.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The option list `unmatchedTorrents`, the path field `unmatchedLocation`, `error_div`, **Set location...**, the close behaviour and the label `unmatchedLabel` are those the second epic's `unmatchedtorrents.html` node defines. `torrents/findLocation` answers HTTP 202 while any torrent is pending and HTTP 200 with `matched` and `unmatched` once none is, and a request without `hashes` registers nothing.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` **Search folder...**: no option → return. An empty trimmed path → write the empty-path message into `error_div` and return. Otherwise disable the button, clear `error_div`, and post `hashes` holding every option's `value` joined by `|` and `root` holding the path to `api/v2/torrents/findLocation`.
+        *   `[X]` Each response: not ok → write its text into `error_div` and enable the button. HTTP 202 → one second later, post to `api/v2/torrents/findLocation` without `hashes` and handle that response the same way. HTTP 200 → remove every option whose `value` the answer's `matched` names by `hash`, enable the button, and close the window when no option remains, or else select the first option and write its save path into the field. An option named by neither list stays.
+
+    *   `[X]` src/webui/www/private/`unmatchedtorrents.html`
+        *   `[X]` Before `setLocationButton`, add `<input type="button" value="QBT_TR(Search folder...)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]" id="searchFolderButton">`.
+        *   `[X]` `unmatchedLabel`'s text becomes `QBT_TR(No existing content was found for these torrents. Search a folder, set a location for each, or close to leave them where they are.)QBT_TR[CONTEXT=UnmatchedTorrentsDialog]`, the desktop dialog's string.
+        *   `[X]` Add the handler per the interaction spec.
+
+    *   `[X]` `directionality`
+        *   `[X]` The page consumes the WebAPI alone and writes nothing to the discovery root list.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-10: the web interface list accepts a directory to search, and another while entries remain.
+        *   `[X]` IF-20: **Search folder...** posts the listed torrents with the entered directory as `root`.
+        *   `[X]` ST-8: the directory reaches only the request.
+        *   `[X]` IF-12: the button and label pass through `QBT_TR`.
+        *   `[X]` BT-9: `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
+        *   `[X]` Verify the action through the dependency map's manual case for step 25 and Epic 3 integration scenario 10 at the commit boundary.
+
+*   `[X]` [API] src/webui/api/`appcontroller` — expose `find_location_discovery_roots` on `app/preferences` and `app/setPreferences` as an array of objects carrying `path` and `recursive`, returned in the WebAPI's native path form and received through `parseDiscoveryRoots()`. T21
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the discovery root list is reachable only from the desktop dialog.
+        *   `[X]` Functional: `app/preferences` returns the list in configured order; `app/setPreferences` replaces it when its key is present, dropping invalid entries, and leaves it untouched when absent.
+
+    *   `[X]` `role`
+        *   `[X]` WebAPI controller in `src/webui/api`.
+        *   `[X]` Out of scope: the web page and the changelog, which are their own nodes; `API_VERSION`, which the maintainers set.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: one key in two actions and the key's outgoing path form. Outside: the receiving JSON rules, which the `discoveryroots` node owns.
+
+    *   `[X]` `deps`
+        *   `[X]` `base/discoveryroots.h` — `DiscoveryRoots::instance()`, `roots()`, `setRoots()` and `parseDiscoveryRoots()`.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `preferencesAction()` builds `QJsonObject data`, and `appcontroller.cpp` already includes `<QJsonArray>`. `setPreferencesAction()` reads the request through `QJsonDocument::fromJson(...).toVariant().toHash()`, so a JSON array arrives as a `QVariantList`, and tests keys with `hasKey`. The second epic's `find_location_leech_enabled` statements are the anchor.
+        *   `[X]` WebAPI path values are written with `Path::toString()`, as `scan_dirs` writes each watched folder; persisted configuration is written with `Path::data()`, as `serializeDiscoveryRoots()` writes `discovery_roots.json`. The persistence serializer is therefore not the WebAPI serializer.
+
+    *   `[X]` src/webui/api/`appcontroller.cpp`
+        *   `[X]` Add `#include "base/discoveryroots.h"` after `#include "base/bittorrent/session.h"`.
+        *   `[X]` In `preferencesAction()`, after the `find_location_leech_enabled` line, build a local `QJsonArray discoveryRoots` holding, for each `DiscoveryRoot` of `DiscoveryRoots::instance()->roots()` in order, `QJsonObject {{u"path"_s, root.path.toString()}, {u"recursive"_s, root.options.recursive}}`, then `data[u"find_location_discovery_roots"_s] = discoveryRoots;`.
+        *   `[X]` In `setPreferencesAction()`, after the `find_location_leech_enabled` branch, add `if (hasKey(u"find_location_discovery_roots"_s))` followed by `DiscoveryRoots::instance()->setRoots(parseDiscoveryRoots(QJsonArray::fromVariantList(it.value().toList())));`. `Path` normalises each received string, so native and generic separators both parse; an unchanged list writes and emits nothing through `setRoots()`.
+
+    *   `[X]` `directionality`
+        *   `[X]` `appcontroller` depends downward on `discoveryroots` in `src/base`.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-4: the discovery root list is exposed on both endpoints.
+        *   `[X]` CN-5: a request omitting the key leaves the list unchanged.
+        *   `[X]` On Windows, `app/preferences` returns each discovery root path in the native form it returns for `save_path` and the `scan_dirs` keys, and `discovery_roots.json` holds the `Path::data()` form, verified at the Epic 3 commit boundary.
+        *   `[X]` A root set through the WebAPI appears in the options dialog list through `rootsChanged`, verified by the dependency map's manual case for step 21.
+
+*   `[X]` [UI] src/webui/www/private/views/`preferences.html` — add the `discovery_roots_tab` table and an **Add...** button to the **Find location** fieldset, one row per root holding its path, a recursion checkbox and a **Remove** button, loaded from and saved to `find_location_discovery_roots`. T21
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: the discovery root list has no control in the web interface.
+        *   `[X]` Functional: a table listing each root's path with its recursion flag in configured order; **Add...** appends an empty row and focuses its path; each row's **Remove** deletes that row and leaves the others in order; saving sends every row with a non-empty path, in row order.
+        *   `[X]` Functional: the path inputs, checkboxes, **Remove** buttons and **Add...** are disabled while the legend checkbox is unchecked, and the rows' values are still sent, so disabling the group erases nothing.
+        *   `[X]` Non-functional: every control is a native, keyboard-operable element with an accessible name, reached by Tab in row order with **Add...** after the table; the column titles use the translation contexts of the desktop model and dialog.
+
+    *   `[X]` `role`
+        *   `[X]` Presentation in `src/webui/www`.
+        *   `[X]` Out of scope: validation of entries, which `parseDiscoveryRoots()` performs on receipt.
+
+    *   `[X]` `module`
+        *   `[X]` Inside: the table, the **Add...** button, the row builder, the reader, the enablement of the new controls, and the load and save statements. Outside: the list's rules.
+
+    *   `[X]` `deps`
+        *   `[X]` `app/preferences`, returning `find_location_discovery_roots` from the `appcontroller` node; `app/setPreferences`, receiving it.
+
+    *   `[X]` `context_slice`
+        *   `[X]` `watched_folders_tab` supplies the table's markup form, `<table style="border: 1px solid black;">` with a `thead`. Its script is not followed: `addWatchFolder()` interpolates the folder into markup, adds rows through a clickable image, and addresses rows by positional IDs that a removal would break. The discovery root rows are built with DOM elements and read by walking the `tbody` rows, so they need no `HtmlTable` and no positional ID. The earlier epics' `preferences.html` nodes define the fieldset and `updateFindLocationEnabled`, and the object `exports` returns publishes handlers named in `onclick` attributes.
+
+    *   `[X]` `interaction.spec`
+        *   `[X]` `addDiscoveryRoot(path = "", recursive = false)` appends to the `tbody` of `discovery_roots_tab` one `tr` of three `td`s built with `document.createElement`: an `input` with `type` `text` and `aria-label` `"QBT_TR(Discovery root)QBT_TR[CONTEXT=DiscoveryRootsModel]"`, whose `value` property is set to `path`; an `input` with `type` `checkbox` and `aria-label` `"QBT_TR(Recursive mode)QBT_TR[CONTEXT=DiscoveryRootOptionsDialog]"`, whose `checked` property is set to `recursive`; and a `button` with `type` `button` and `textContent` `"QBT_TR(Remove)QBT_TR[CONTEXT=OptionsDialog]"`, whose `click` listener removes its row and then focuses `addDiscoveryRootButton`. Each of the three is disabled unless `findLocationCheckbox` is checked. It returns the text input.
+        *   `[X]` `addEmptyDiscoveryRoot()` calls `addDiscoveryRoot()` and focuses the returned input.
+        *   `[X]` `getDiscoveryRoots()`: for each `tr` of the `tbody` in order whose text input's trimmed `value` is non-empty, `{ path, recursive }` from that value and the checkbox's `checked`, read whether or not the controls are disabled; returns the array.
+        *   `[X]` `updateFindLocationEnabled()` additionally sets `disabled` to the negation of the group state on every element matched by `#discovery_roots_tab input, #discovery_roots_tab button, #addDiscoveryRootButton`.
+
+    *   `[X]` src/webui/www/private/views/`preferences.html`
+        *   `[X]` Markup: in the **Find location** fieldset, after the `formRow` holding `findLocationLeechCheckbox`, add `<table id="discovery_roots_tab" style="border: 1px solid black;">` with a `thead` row of `<th scope="col">QBT_TR(Discovery root)QBT_TR[CONTEXT=DiscoveryRootsModel]</th>` and `<th scope="col">QBT_TR(Recursive mode)QBT_TR[CONTEXT=DiscoveryRootOptionsDialog]</th>` and an empty `tbody`, then `<button type="button" id="addDiscoveryRootButton" onclick="qBittorrent.Preferences.addEmptyDiscoveryRoot();">QBT_TR(Add...)QBT_TR[CONTEXT=OptionsDialog]</button>`.
+        *   `[X]` Script: after `getWatchedFolders`, define `addDiscoveryRoot`, `addEmptyDiscoveryRoot` and `getDiscoveryRoots` per the interaction spec; extend `updateFindLocationEnabled` per the interaction spec; after `addWatchFolder: addWatchFolder,` in `exports`, add `addEmptyDiscoveryRoot: addEmptyDiscoveryRoot,`.
+        *   `[X]` Load: after the `findLocationLeechCheckbox` load and before the `updateFindLocationEnabled();` call, `for (const root of pref.find_location_discovery_roots)` calls `addDiscoveryRoot(root.path, root.recursive);`. No trailing empty row is added.
+        *   `[X]` Save: after the `find_location_leech_enabled` statement, `settings["find_location_discovery_roots"] = getDiscoveryRoots();`.
+
+    *   `[X]` `directionality`
+        *   `[X]` The page consumes the WebAPI and adds no dependency beyond the key the `appcontroller` node provides.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-5: the discovery root list has a control on the web interface preferences page.
+        *   `[X]` IF-12: both column titles, both accessible names and both button texts are wrapped in `QBT_TR`, in the contexts of the desktop strings they repeat.
+        *   `[X]` A path is written to its input through the `value` property, never interpolated into markup.
+        *   `[X]` ST-3: unchecking the legend checkbox disables every discovery root control and leaves each row's values in the saved settings.
+        *   `[X]` Keyboard: Tab reaches each row's path, checkbox and **Remove** in row order and then **Add...**; Space and Enter operate both buttons; **Add...** moves focus to the new path and **Remove** moves it to **Add...**; disabled controls are skipped.
+        *   `[X]` Adding, removing a middle row, and saving send the remaining rows in their displayed order.
+        *   `[X]` The `CI - WebUI` workflow's `npm run lint` passes, and `npm run format` in `src/webui/www` leaves the file unchanged.
+        *   `[X]` The page is verified by the dependency map's manual case for step 21 and the WebUI case at the Epic 3 commit boundary.
+
+*   `[X]` [DOCS] `WebAPI_Changelog` — record `find_location_discovery_roots` on `app/preferences` and `app/setPreferences`, and the `root` parameter of `torrents/findLocation`, under the version heading at the top of the file. T21, T25
+
+    *   `[X]` `objective`
+        *   `[X]` Problem: WebAPI clients learn of new preference keys and parameters from this file, and one key joins both preference endpoints while one parameter joins `torrents/findLocation`.
+        *   `[X]` Functional: add one entry under the version heading at the top of the file when the branch is rebased, linking this submission's pull request, naming the key and its shape on both endpoints, and naming the parameter. Leave `API_VERSION` and the version headings unchanged; any version decision is the maintainers'.
+
+    *   `[X]` `context_slice`
+        *   `[X]` The entries the first and second epics' `WebAPI_Changelog` nodes add are the wording model. Entries under a heading run newest first.
+
+    *   `[X]` `WebAPI_Changelog.md`
+        *   `[X]` Under the heading at the top of the file, before its first entry, insert the entry below, separated from its neighbours as the existing entries are.
+        *   `[X]` The entry is a top-level bullet linking the pull request, `* [#<number>](https://github.com/qbittorrent/qBittorrent/pull/<number>)`, where `<number>` is the number GitHub assigns when this submission's pull request is opened.
+        *   `[X]` Under it, the indented bullet ``* `app/preferences` endpoint includes `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option``.
+        *   `[X]` Under it, the indented bullet ``* `app/setPreferences` endpoint allows to set `find_location_discovery_roots` (array of objects with `path` (string) and `recursive` (bool)) option``.
+        *   `[X]` Under it, the indented bullet ``* `torrents/findLocation` endpoint accepts optional parameter `root` (string), an existing directory searched ahead of every other root for the torrents that request registers``.
+
+    *   `[X]` `requirements`
+        *   `[X]` IF-6: the submission adds one `WebAPI_Changelog.md` entry naming the key and parameter it introduces under the heading at the top of the file and leaves `API_VERSION` unchanged.
+        *   `[X]` The file passes the `rumdl` pre-commit hook.
+
+*   `[X]` **Commit** `Search discovery roots and pointed folders`
+    *   `[X]` Structural: `DiscoveryRootOptions`, `DiscoveryRoot`, `DiscoveryRoots`, `parseDiscoveryRoots()` and `serializeDiscoveryRoots()`; `SubdirectoryMap` and `enumerateSubdirectories()`; `candidateRoots()` taking optional subdirectory maps holding every directory per name; `Session::findTorrentLocations()` taking torrent IDs and a pointed root; `SessionImpl::SearchOperation` and `SessionImpl::createSearchOperation()`; `DiscoveryRootsModel` and `DiscoveryRootOptionsDialog`; the discovery root list in the options dialog and web interface; **Search folder...** in the desktop and web interface unmatched lists; the `root` parameter of `torrents/findLocation`; two test executables and their fixtures.
+    *   `[X]` Behavioural: every operation composes a pointed root, then the discovery roots in configured order, then the watched folder save paths, walking every directory beneath recursive roots and the pointed root once per operation and matching each torrent's name and source name against that listing at any depth, each directory found contributing its parent then itself; automatic additions share an unchanged add operation while it is in flight and otherwise each form their own, and a transfer-list invocation, a `torrents/findLocation` request or a **Search folder...** action is one batch operation; the log names the exact root that produced each found location; the desktop and web interface unmatched lists search a chosen folder for their entries, and a `torrents/findLocation` request searches the folder its `root` names; every mode is offered by the desktop interface, the web interface and the WebAPI alike.
+    *   `[X]` Contract: `candidateRoots()` callers supplying no maps behave as before; `findTorrentLocation()` keeps its declaration and outcomes; `app/preferences` and `app/setPreferences` gain `find_location_discovery_roots` and `torrents/findLocation` gains `root`, recorded in `WebAPI_Changelog.md` with `API_VERSION` unchanged; a request without `root` behaves as the second epic defines.
+    *   `[X]` **Integration scenario 1 — batch enumeration:** configure one recursive discovery root holding one content folder per torrent, one directly beneath the root and the others beneath one and two determinant folders, and watch directory listings of that tree with `inotifywait -m -r -e open` on Linux or Process Monitor's `QueryDirectory` events on Windows. Run **Find location** over three torrents, post `torrents/findLocation` naming three torrents, then **Search folder...** on that root with three unmatched entries; confirm each operation lists each directory of the discovery root's tree once and each directory of the pointed root's tree once, and each torrent's outcome is still reported and assigned as its own search completes. Add one torrent; confirm that addition lists each directory of the root's tree once.
+    *   `[X]` **Integration scenario 2 — overlapping origins:** configure a watched folder save path `W`, a discovery root `W/library` and a discovery root `W/library/sub`, and point **Search folder...** at `W/library`. With content placed where only the pointed root's candidates reach it, only a discovery root's candidates reach it, and only the watched folder's candidates reach it, confirm the log names the pointed root, that exact discovery root and the watched folder save path respectively, and never a nested root that merely contains the winner.
+    *   `[X]` **Integration scenario 3 — persistence:** configure at least two roots in a meaningful order with different recursion flags; apply, exit normally, restart, and confirm the exact paths, order and flags in the options dialog and in `app/preferences`. Remove one root and change another's flag, restart again, and confirm the change persisted.
+    *   `[X]` **Integration scenario 4 — absent and malformed files:** start with no `discovery_roots.json` and confirm the list is empty and no warning is logged. Then start with malformed JSON, and again with a JSON object at the top level; each time confirm the application remains usable, the list is empty, and the expected warning is logged.
+    *   `[X]` **Integration scenario 5 — unchanged writes:** with roots configured and one selected in the options dialog, change and apply an unrelated Downloads setting; confirm `discovery_roots.json`'s modification time is unchanged and the list keeps its selection, so the model was not reset. Send `app/setPreferences` with an unchanged `find_location_discovery_roots` and confirm the same.
+    *   `[X]` **Integration scenario 6 — path forms:** on Windows, confirm `app/preferences` returns each discovery root path with the same separators as `save_path` and the `scan_dirs` keys, that sending those values back leaves the list unchanged, and that `discovery_roots.json` holds each path in its `Path::data()` form.
+    *   `[X]` **Integration scenario 7 — web interface:** add three roots, remove the middle one, and save; confirm the remaining two are returned in order. Uncheck the legend checkbox; confirm every discovery root control and **Add...** are disabled and skipped by Tab, and that saving keeps the list. Operate **Add...** and **Remove** by keyboard alone and confirm focus moves as specified.
+    *   `[X]` **Integration scenario 8 — automatic addition burst:** configure one recursive discovery root holding one content folder per torrent at varying depths, watch its directory listings as in scenario 1, and drop a batch of `.torrent` files into a watched folder while that root is being walked; confirm each directory of the root's tree is listed once for the additions arriving during that walk, and that each of those torrents whose content folder sits in the tree is found through the listing.
+    *   `[X]` **Integration scenario 9 — structured volume:** configure a recursive discovery root `V` holding a multi-file torrent's content at `V/someDeterminant/someOtherDeterminant/contentFolder/content`, a single-file torrent's file at `V/Category/Stem/Stem.ext` where `Stem.ext` is the torrent's file and the torrent is added under the Original content layout, and two copies of a third torrent's folder, named `Disc 1`, at `V/A/Disc 1` holding one of its files and `V/B/Disc 1` holding all of them. Add a hidden directory and a symbolic link on Linux, or a junction on Windows, inside `V` pointing at `V`. Add the three torrents in manual mode; confirm the first resolves to `V/someDeterminant/someOtherDeterminant`, the second to `V/Category/Stem`, and the third to `V/B`, each logged as found in the discovery root `V`, each completing its check without transferring content. Confirm with the listing watch from scenario 1 that the walk finishes, lists each real directory once, and neither lists nor enters the hidden directory, the link or the junction.
+    *   `[X]` **Integration scenario 10 — pointed root through the WebAPI and web interface:** with three torrents whose content sits only beneath a directory `P` that is neither a discovery root nor a watched folder save path, run **Find location** in the web interface and confirm `unmatchedtorrents.html` lists all three. Enter a directory holding none of them and use **Search folder...**; confirm the button is disabled until the search completes and all three stay. Enter `P` and use **Search folder...**; confirm, with the listing watch from scenario 1, that `P`'s tree is listed once, that each torrent is assigned, logged as found in the pointed root `P` and removed, and that the window closes. Repeat with the content split across `P` and a second directory `Q`, searching `P` then `Q`, and confirm the list shrinks at each step. Post `torrents/findLocation` naming the three torrents with `root` set to `P` and confirm the same assignments; with `root` naming a missing directory, confirm HTTP 409 and no search. Confirm `P` appears in neither `discovery_roots.json` nor `app/preferences`.
+    *   `[X]` Commit after the manual cases for steps 19 through 22 and 25 and the ten integration scenarios pass, the Epic 2 integration scenarios still pass, the full build and suite pass under `-DTESTING=ON` on Ubuntu, macOS and Windows, the WebUI lint and format checks pass, and the changelog passes `rumdl`.
 
 # To Do
 
